@@ -87,6 +87,7 @@ interface AppState {
   addNextAction: (action: Omit<NextAction, 'id' | 'createdAt'>) => void;
   updateNextAction: (id: string, updates: Partial<NextAction>) => void;
   completeNextAction: (id: string) => void;
+  completeNextActionByType: (candidateId: string, actionType: string, completionNote?: string) => boolean;
   getNextActionsByCandidate: (candidateId: string) => NextAction[];
   getPendingNextActions: () => NextAction[];
 }
@@ -474,6 +475,53 @@ export const useStore = create<AppState>()(
             a.id === id ? { ...a, status: 'completed' as const, completedAt: now } : a
           ),
         }));
+      },
+
+      completeNextActionByType: (candidateId, actionType, completionNote) => {
+        const now = new Date().toISOString().replace('T', ' ').substr(0, 16);
+        const state = get();
+        
+        const typeMap: Record<string, string[]> = {
+          'send_offer': ['send_offer', 'offer'],
+          'send_rejection': ['send_rejection', 'rejection'],
+          'schedule_interview': ['schedule_interview', 'next_round'],
+          'notification_offer': ['send_offer', 'offer'],
+          'notification_rejection': ['send_rejection', 'rejection'],
+          'offer': ['send_offer', 'offer'],
+          'rejection': ['send_rejection', 'rejection'],
+        };
+        
+        const matchingTypes = typeMap[actionType] || [actionType];
+        
+        const pendingAction = state.nextActions.find((a) => 
+          a.candidateId === candidateId && 
+          a.status === 'pending' && 
+          matchingTypes.includes(a.type)
+        );
+        
+        if (pendingAction) {
+          const candidate = state.candidates.find((c) => c.id === candidateId);
+          const timelineEvent: Omit<TimelineEvent, 'id'> = {
+            candidateId,
+            type: 'next_action',
+            title: `✓ 完成待办 - ${pendingAction.description}`,
+            content: completionNote || pendingAction.description,
+            createdAt: now,
+            createdBy: '系统',
+            metadata: { actionId: pendingAction.id, actionType: pendingAction.type, autoCompleted: true },
+          };
+          
+          set((state) => ({
+            nextActions: state.nextActions.map((a) =>
+              a.id === pendingAction.id ? { ...a, status: 'completed' as const, completedAt: now } : a
+            ),
+            timelineEvents: [...state.timelineEvents, { ...timelineEvent, id: generateId() }],
+          }));
+          
+          return true;
+        }
+        
+        return false;
       },
 
       getNextActionsByCandidate: (candidateId) => {

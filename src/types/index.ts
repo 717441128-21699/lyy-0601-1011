@@ -128,7 +128,7 @@ export interface FilterPreset {
 export interface TimelineEvent {
   id: string;
   candidateId: string;
-  type: 'stage_change' | 'status_change' | 'interview' | 'evaluation' | 'communication' | 'next_action' | 'rejection';
+  type: 'stage_change' | 'status_change' | 'interview' | 'evaluation' | 'communication' | 'notification' | 'next_action' | 'rejection';
   title: string;
   content: string;
   createdAt: string;

@@ -80,6 +80,7 @@ export const timelineTypeLabels: Record<string, string> = {
   interview: '面试',
   evaluation: '评价',
   communication: '沟通',
+  notification: '✉️ 通知',
   next_action: '下一步',
   rejection: '❌ 淘汰',
 };
@@ -90,7 +91,8 @@ export const timelineTypeColors: Record<string, string> = {
   interview: '#ff9800',
   evaluation: '#9c27b0',
   communication: '#00bcd4',
-  next_action: '#f44336',
+  notification: '#2196f3',
+  next_action: '#ff9800',
   rejection: '#f44336',
 };
 

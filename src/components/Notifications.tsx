@@ -35,6 +35,7 @@ export default function Notifications() {
     templates, candidates, interviews, notificationRecords, communicationRecords,
     addTemplate, updateTemplate, deleteTemplate, addNotificationRecord,
     searchCommunications, notificationDraft, setNotificationDraft,
+    completeNextActionByType,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<'templates' | 'generate' | 'history' | 'search'>('templates');
@@ -201,6 +202,7 @@ export default function Notifications() {
 
     const now = new Date().toISOString().replace('T', ' ').substr(0, 16);
 
+    let completedCount = 0;
     selectedCandidates.forEach((candidateId) => {
       const candidate = candidates.find((c) => c.id === candidateId);
       if (!candidate) return;
@@ -225,9 +227,20 @@ export default function Notifications() {
         status: 'sent',
         channel: 'email',
       });
+
+      const completed = completeNextActionByType(
+        candidateId,
+        template.type,
+        `已发送${typeLabels[template.type] || template.type}通知`
+      );
+      if (completed) completedCount++;
     });
 
-    alert(`已生成 ${selectedCandidates.length} 条通知记录`);
+    let message = `已生成 ${selectedCandidates.length} 条通知记录`;
+    if (completedCount > 0) {
+      message += `\n\n已自动完成 ${completedCount} 条关联待办事项`;
+    }
+    alert(message);
     setSelectedCandidates([]);
     setGeneratedContent('');
     setGeneratedSubject('');

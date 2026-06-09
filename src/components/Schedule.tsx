@@ -9,7 +9,7 @@ export default function Schedule() {
     interviews, interviewers, candidates, getInterviewsByDate, getInterviewsByInterviewer,
     getInterviewerFreeSlots, isTimeSlotAvailable, addInterview, getInterviewerWorkload,
     updateInterview, deleteInterview, rescheduleInterview, getUpcomingInterviews, getAlternativeSlots,
-    scheduleDraft, setScheduleDraft,
+    scheduleDraft, setScheduleDraft, completeNextActionByType,
   } = useStore();
 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -267,6 +267,20 @@ export default function Schedule() {
         status: 'scheduled',
         remarks: editingInterview.remarks || '',
       });
+
+      if (editingInterview.candidateId) {
+        const stageLabel = stageLabels[editingInterview.stage as InterviewStage] || editingInterview.stage;
+        const completed = completeNextActionByType(
+          editingInterview.candidateId,
+          'schedule_interview',
+          `已安排${stageLabel}面试：${editingInterview.date} ${editingInterview.startTime}-${editingInterview.endTime}`
+        );
+        if (completed) {
+          setTimeout(() => {
+            alert(`面试安排成功！\n\n已自动完成关联待办事项：安排${stageLabel}面试`);
+          }, 100);
+        }
+      }
     }
 
     setShowModal(false);

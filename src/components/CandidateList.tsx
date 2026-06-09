@@ -239,16 +239,18 @@ export default function CandidateList() {
     });
 
     candidateNotifications.forEach((n) => {
+      const isOffer = n.type === 'offer';
+      const isRejection = n.type === 'rejection';
       allEvents.push({
         id: `notif-${n.id}`,
         candidateId,
-        type: 'communication',
-        originalType: 'notification',
-        title: `通知发送 - ${typeLabels[n.type] || n.type}`,
+        type: isRejection ? 'rejection' : 'notification',
+        originalType: `notification_${n.type}`,
+        title: `${isOffer ? '💼' : isRejection ? '❌' : '✉️'} ${isOffer ? 'Offer通知' : isRejection ? '淘汰通知' : typeLabels[n.type] || n.type}`,
         content: `${n.subject}\n${n.content.substring(0, 100)}${n.content.length > 100 ? '...' : ''}`,
         createdAt: n.sentAt,
         createdBy: '系统',
-        metadata: { status: n.status, channel: n.channel },
+        metadata: { status: n.status, channel: n.channel, notificationType: n.type },
       });
     });
 
@@ -944,6 +946,7 @@ export default function CandidateList() {
                       { value: 'interview', label: '面试' },
                       { value: 'evaluation', label: '评价' },
                       { value: 'communication', label: '沟通' },
+                      { value: 'notification', label: '通知' },
                       { value: 'next_action', label: '待办' },
                       { value: 'rejection', label: '淘汰' },
                     ].map((filter) => (
@@ -970,7 +973,11 @@ export default function CandidateList() {
                   const filteredTimeline = timelineFilter === 'all'
                     ? fullTimeline
                     : fullTimeline.filter((e) => {
-                        if (timelineFilter === 'communication') return e.type === 'communication' || e.originalType === 'notification';
+                        if (timelineFilter === 'notification') return String(e.originalType).startsWith('notification_');
+                        if (timelineFilter === 'communication') return e.type === 'communication' && !String(e.originalType).startsWith('notification_');
+                        if (timelineFilter === 'rejection') return e.type === 'rejection' || e.originalType === 'rejection' || e.originalType === 'notification_rejection';
+                        if (timelineFilter === 'evaluation') return e.type === 'evaluation';
+                        if (timelineFilter === 'next_action') return e.type === 'next_action';
                         return e.type === timelineFilter || e.originalType === timelineFilter;
                       });
                   
@@ -981,13 +988,29 @@ export default function CandidateList() {
                   return (
                     <div style={styles.timelineContainer}>
                       {filteredTimeline.map((event, idx) => {
-                        const isRejection = event.type === 'rejection' || event.originalType === 'rejection';
-                        const eventColor = isRejection ? '#f44336' : timelineTypeColors[event.type] || '#999';
-                        const eventLabel = isRejection ? '❌ 淘汰' : (timelineTypeLabels[event.type] || event.type);
+                        const isRejection = event.type === 'rejection' || event.originalType === 'rejection' || event.originalType === 'notification_rejection';
+                        const isOfferNotification = event.originalType === 'notification_offer';
+                        const isNotification = String(event.originalType).startsWith('notification_');
+                        
+                        let eventColor = timelineTypeColors[event.type] || '#999';
+                        let eventLabel = timelineTypeLabels[event.type] || event.type;
+                        
+                        if (isRejection) {
+                          eventColor = '#f44336';
+                          eventLabel = '❌ 淘汰';
+                        } else if (isOfferNotification) {
+                          eventColor = '#4caf50';
+                          eventLabel = '💼 Offer';
+                        } else if (isNotification) {
+                          eventColor = '#2196f3';
+                          eventLabel = '✉️ 通知';
+                        }
+                        
                         return (
                           <div key={event.id} style={{
                             ...styles.timelineItem,
                             ...(isRejection ? { backgroundColor: '#ffebee30', borderRadius: '8px' } : {}),
+                            ...(isOfferNotification ? { backgroundColor: '#e8f5e930', borderRadius: '8px' } : {}),
                           }}>
                             <div style={styles.timelineDot}>
                               <div style={{
@@ -1014,6 +1037,7 @@ export default function CandidateList() {
                               <div style={{
                                 ...styles.timelineTitle,
                                 ...(isRejection ? { color: '#f44336', fontWeight: 600 } : {}),
+                                ...(isOfferNotification ? { color: '#2e7d32', fontWeight: 600 } : {}),
                               }}>
                                 {event.title}
                               </div>
