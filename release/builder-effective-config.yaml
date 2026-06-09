@@ -1,0 +1,10 @@
+directories:
+  output: release
+  buildResources: build
+appId: com.hr.assistant
+productName: HR面试官助手
+files:
+  - filter:
+      - dist
+      - dist-electron
+electronVersion: 29.4.6

@@ -142,15 +142,15 @@ export default function Notifications() {
       '面试日期': interview?.date || '{面试日期}',
       '开始时间': interview?.startTime || '{开始时间}',
       '结束时间': interview?.endTime || '{结束时间}',
-      '面试形式': interview?.type === 'onsite' ? '现场面试' : interview?.type === 'online' ? '视频面试' : '电话面试' || '{面试形式}',
+      '面试形式': interview?.type === 'onsite' ? '现场面试' : interview?.type === 'online' ? '视频面试' : interview?.type === 'phone' ? '电话面试' : '{面试形式}',
       '面试地点': interview?.location || '{面试地点}',
       '面试官姓名': interview?.interviewer || '{面试官姓名}',
       '面试时间': interview ? `${interview.date} ${interview.startTime}` : '{面试时间}',
     };
 
     Object.entries(replacements).forEach(([key, value]) => {
-      content = content.replaceAll(`{${key}}`, value);
-      subject = subject.replaceAll(`{${key}}`, value);
+      content = content.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+      subject = subject.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
     });
 
     setGeneratedContent(content);
@@ -175,10 +175,10 @@ export default function Notifications() {
       let content = generatedContent;
       let subject = generatedSubject;
 
-      content = content.replaceAll('{候选人姓名}', candidate.name);
-      content = content.replaceAll('{岗位名称}', candidate.position);
-      subject = subject.replaceAll('{候选人姓名}', candidate.name);
-      subject = subject.replaceAll('{岗位名称}', candidate.position);
+      content = content.replace(/\{候选人姓名\}/g, candidate.name);
+      content = content.replace(/\{岗位名称\}/g, candidate.position);
+      subject = subject.replace(/\{候选人姓名\}/g, candidate.name);
+      subject = subject.replace(/\{岗位名称\}/g, candidate.position);
 
       addNotificationRecord({
         candidateId: candidate.id,

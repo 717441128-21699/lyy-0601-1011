@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { stageLabels, stageColors, recommendationLabels, recommendationColors } from '../utils/constants';
 import { InterviewEvaluation, CandidateStatus, InterviewStage } from '../types';
@@ -9,6 +9,29 @@ export default function Evaluation() {
     updateCandidateStatus, addCommunicationRecord,
     selectedInterview, setSelectedInterview, getInterviewsByCandidate
   } = useStore();
+
+  const normalizeSalary = (salary: string | undefined): string => {
+    if (!salary) return '';
+    const s = String(salary).trim();
+    if (!s) return '';
+    if (s.toLowerCase().includes('k')) {
+      return s;
+    }
+    const numMatch = s.match(/\d+(\.\d+)?/);
+    if (numMatch) {
+      return `${numMatch[0]}K`;
+    }
+    return s;
+  };
+
+  const formatSalaryDisplay = (salary: string | undefined): string => {
+    const normalized = normalizeSalary(salary);
+    if (!normalized) return '';
+    if (normalized.toLowerCase().includes('k')) {
+      return normalized;
+    }
+    return `${normalized}K`;
+  };
 
   const [showModal, setShowModal] = useState(false);
   const [evaluation, setEvaluation] = useState<Partial<InterviewEvaluation>>({
@@ -39,6 +62,13 @@ export default function Evaluation() {
   const handleEvaluate = (interview: any) => {
     setSelectedInterview(interview);
     const candidate = candidates.find((c) => c.id === interview.candidateId);
+    let defaultSalary = '';
+    if (candidate?.expectedSalary) {
+      const salaryNum = candidate.expectedSalary.split('-')[0].replace(/[^0-9.]/g, '');
+      if (salaryNum) {
+        defaultSalary = `${salaryNum}K`;
+      }
+    }
     setEvaluation({
       overallScore: 7,
       technicalSkills: 7,
@@ -48,11 +78,17 @@ export default function Evaluation() {
       comments: '',
       strengths: [],
       weaknesses: [],
-      suggestedSalary: candidate?.expectedSalary.split('-')[0] || '',
+      suggestedSalary: defaultSalary,
       recommendation: 'hire',
     });
     setShowModal(true);
   };
+
+  useEffect(() => {
+    if (selectedInterview && !showModal) {
+      handleEvaluate(selectedInterview);
+    }
+  }, [selectedInterview]);
 
   const handleAddStrength = () => {
     if (strengthInput.trim() && !evaluation.strengths?.includes(strengthInput.trim())) {
@@ -90,6 +126,8 @@ export default function Evaluation() {
       return;
     }
 
+    const normalizedSalary = normalizeSalary(evaluation.suggestedSalary);
+
     const fullEvaluation: InterviewEvaluation = {
       overallScore: evaluation.overallScore || 0,
       technicalSkills: evaluation.technicalSkills || 0,
@@ -99,7 +137,7 @@ export default function Evaluation() {
       comments: evaluation.comments || '',
       strengths: evaluation.strengths || [],
       weaknesses: evaluation.weaknesses || [],
-      suggestedSalary: evaluation.suggestedSalary,
+      suggestedSalary: normalizedSalary,
       recommendation: evaluation.recommendation as any,
       completedAt: new Date().toISOString().replace('T', ' ').substr(0, 16),
     };
@@ -114,22 +152,42 @@ export default function Evaluation() {
       const currentIndex = stages.indexOf(selectedInterview.stage);
       if (currentIndex < stages.length - 1) {
         newStage = stages[currentIndex + 1];
+        newStatus = 'interviewing';
       } else {
         newStatus = 'passed';
+        newStage = 'offer';
       }
     } else if (evaluation.recommendation === 'no_hire') {
       newStatus = 'rejected';
+    } else if (evaluation.recommendation === 'borderline') {
+      newStatus = 'interviewing';
     }
 
     updateCandidateStatus(selectedInterview.candidateId, newStatus, newStage);
 
+    const candidate = candidates.find((c) => c.id === selectedInterview.candidateId);
+    const salaryText = normalizedSalary ? `，建议薪资：${normalizedSalary}` : '';
+    const stageText = newStatus === 'passed' ? '，进入Offer阶段' :
+      newStatus === 'rejected' ? '，已淘汰' :
+      newStage !== selectedInterview.stage ? `，进入下一阶段：${stageLabels[newStage]}` : '';
+
     addCommunicationRecord({
       candidateId: selectedInterview.candidateId,
       type: 'note',
-      content: `${stageLabels[selectedInterview.stage]}面试结束，评分：${evaluation.overallScore}/10，建议：${recommendationLabels[evaluation.recommendation || 'hire']}。评价：${evaluation.comments}`,
+      content: `【${stageLabels[selectedInterview.stage]}】面试完成。评分：${evaluation.overallScore}/10（技术${evaluation.technicalSkills}，沟通${evaluation.communication}，协作${evaluation.teamwork}，问题解决${evaluation.problemSolving}）。建议：${recommendationLabels[evaluation.recommendation || 'hire']}${salaryText}${stageText}。评价：${evaluation.comments}`,
       createdAt: new Date().toISOString().replace('T', ' ').substr(0, 16),
       createdBy: '招聘负责人',
     });
+
+    if (newStatus === 'rejected') {
+      addCommunicationRecord({
+        candidateId: selectedInterview.candidateId,
+        type: 'note',
+        content: `候选人已淘汰。原因：${evaluation.weaknesses?.join('、') || '综合评估未通过'}`,
+        createdAt: new Date().toISOString().replace('T', ' ').substr(0, 16),
+        createdBy: '招聘负责人',
+      });
+    }
 
     setShowModal(false);
     setSelectedInterview(null);
@@ -138,7 +196,7 @@ export default function Evaluation() {
 
   const ScoreSlider = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => (
     <div style={styles.scoreItem}>
-      <div style={styles.scoreLabel}>
+      <div style={styles.scoreItemLabel}>
         <span>{label}</span>
         <span style={styles.scoreValue}>{value}</span>
       </div>
@@ -235,7 +293,7 @@ export default function Evaluation() {
                         </div>
                         {interview.evaluation.suggestedSalary && (
                           <div style={styles.salarySuggestion}>
-                            💡 建议薪资：{interview.evaluation.suggestedSalary}K
+                            💡 建议薪资：{formatSalaryDisplay(interview.evaluation.suggestedSalary)}
                           </div>
                         )}
                         <p style={styles.commentsPreview}>{interview.evaluation.comments}</p>
@@ -250,7 +308,7 @@ export default function Evaluation() {
                         <div style={styles.evaluationFooter}>
                           <button style={styles.viewDetailBtn} onClick={() => {
                             setSelectedInterview(interview);
-                            setEvaluation(interview.evaluation);
+                            setEvaluation(interview.evaluation || {});
                             setShowModal(true);
                           }}>
                             查看详情
@@ -791,7 +849,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '16px',
   },
-  scoreLabel: {
+  scoreItemLabel: {
     width: '100px',
     fontSize: '14px',
     color: '#333',

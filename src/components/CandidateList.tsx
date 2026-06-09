@@ -20,6 +20,139 @@ export default function CandidateList() {
 
   const positionOptions = [...new Set(candidates.map((c) => c.position))];
 
+  const normalizePhone = (phone: string): string => {
+    if (!phone) return '';
+    return String(phone)
+      .replace(/\s+/g, '')
+      .replace(/-/g, '')
+      .replace(/\+86/g, '')
+      .replace(/\(|\)/g, '')
+      .trim();
+  };
+
+  const normalizeWorkExperience = (value: any): number => {
+    if (!value && value !== 0) return 0;
+    const str = String(value).trim();
+    const numMatch = str.match(/\d+/);
+    if (numMatch) {
+      return parseInt(numMatch[0], 10);
+    }
+    if (str.includes('应届') || str.includes('毕业') || str.includes('0')) return 0;
+    if (str.includes('一') || str.includes('1')) return 1;
+    if (str.includes('二') || str.includes('两') || str.includes('2')) return 2;
+    if (str.includes('三') || str.includes('3')) return 3;
+    if (str.includes('四') || str.includes('4')) return 4;
+    if (str.includes('五') || str.includes('5')) return 5;
+    return 0;
+  };
+
+  const normalizeSkills = (value: any): string[] => {
+    if (!value) return [];
+    const str = String(value).trim();
+    if (!str) return [];
+    return str
+      .split(/[,，;；、\s/\|]+/)
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+  };
+
+  const normalizeTags = (value: any): string[] => {
+    if (!value) return [];
+    const str = String(value).trim();
+    if (!str) return [];
+    return str
+      .split(/[,，;；、\s/\|]+/)
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+  };
+
+  const normalizeDate = (value: any): string => {
+    if (!value) return new Date().toISOString().split('T')[0];
+    const str = String(value).trim();
+    if (str.includes('/')) {
+      const parts = str.split('/');
+      if (parts.length === 3) {
+        const year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+        const month = parts[0].padStart(2, '0');
+        const day = parts[1].padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+    if (str.includes('-') && str.length >= 8) {
+      return str;
+    }
+    try {
+      const date = new Date(str);
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0];
+      }
+    } catch {}
+    return new Date().toISOString().split('T')[0];
+  };
+
+  const normalizeEmail = (email: string): string => {
+    if (!email) return '';
+    return String(email).trim().toLowerCase();
+  };
+
+  const getFieldValue = (row: any, fieldNames: string[]): string => {
+    for (const name of fieldNames) {
+      if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
+        return String(row[name]).trim();
+      }
+    }
+    return '';
+  };
+
+  const parseCandidateRow = (row: any): Omit<Candidate, 'id'> | null => {
+    const name = getFieldValue(row, ['name', '姓名', 'Name', 'NAME', '名字', '候选人姓名']);
+    const phone = normalizePhone(getFieldValue(row, ['phone', '电话', '手机号码', '手机号', '手机', 'Tel', 'tel', 'Phone', 'PHONE', '联系电话']));
+    const email = normalizeEmail(getFieldValue(row, ['email', '邮箱', '电子邮箱', '邮件', 'Email', 'EMAIL', 'e-mail']));
+    const position = getFieldValue(row, ['position', '岗位', '应聘岗位', '职位', '申请职位', 'Position', 'POSITION']);
+    const department = getFieldValue(row, ['department', '部门', 'Department', 'DEPARTMENT', '所属部门']) || '技术部';
+    const education = getFieldValue(row, ['education', '学历', '最高学历', 'Education', 'EDUCATION', '文凭']) || '本科';
+    const workExperience = normalizeWorkExperience(getFieldValue(row, ['workExperience', '工作经验', '工作年限', '经验', '年限', '工龄', 'Experience', 'EXPERIENCE']));
+    const skills = normalizeSkills(getFieldValue(row, ['skills', '技能', '专业技能', '技能特长', '技术栈', 'Skills', 'SKILLS', '能力']));
+    const expectedSalary = getFieldValue(row, ['expectedSalary', '期望薪资', '薪资要求', '期望工资', '薪资期望', 'Salary', 'salary']);
+    const statusStr = getFieldValue(row, ['status', '状态', '应聘状态', 'Status', 'STATUS']).toLowerCase();
+    let status: CandidateStatus = 'pending';
+    if (statusStr.includes('面试') || statusStr.includes('进行')) status = 'interviewing';
+    else if (statusStr.includes('通过') || statusStr.includes('pass')) status = 'passed';
+    else if (statusStr.includes('淘汰') || statusStr.includes('拒绝') || statusStr.includes('reject')) status = 'rejected';
+    else if (statusStr.includes('入职') || statusStr.includes('已录用') || statusStr.includes('hire')) status = 'hired';
+    const appliedDate = normalizeDate(getFieldValue(row, ['appliedDate', '申请日期', '投递日期', '日期', 'Date', 'date', '申请时间']));
+    const source = getFieldValue(row, ['source', '来源', '简历来源', '渠道', 'Source', 'SOURCE', '招聘渠道']) || 'Boss直聘';
+    const tags = normalizeTags(getFieldValue(row, ['tags', '标签', '备注标签', '关键词', 'Tags', 'TAGS', '标记']));
+    const currentStageStr = getFieldValue(row, ['currentStage', '当前阶段', '阶段', '面试阶段', 'Stage', 'stage']).toLowerCase();
+    let currentStage: InterviewStage = 'resume_screen';
+    if (currentStageStr.includes('电话') || currentStageStr.includes('phone')) currentStage = 'phone_interview';
+    else if (currentStageStr.includes('技术') || currentStageStr.includes('tech')) currentStage = 'tech_interview';
+    else if (currentStageStr.includes('hr') || currentStageStr.includes('人事')) currentStage = 'hr_interview';
+    else if (currentStageStr.includes('终面') || currentStageStr.includes('final')) currentStage = 'final_interview';
+    else if (currentStageStr.includes('offer') || currentStageStr.includes('录用')) currentStage = 'offer';
+
+    if (!name || !phone) {
+      return null;
+    }
+
+    return {
+      name,
+      phone,
+      email,
+      position,
+      department,
+      education,
+      workExperience,
+      skills,
+      expectedSalary,
+      status,
+      appliedDate,
+      source,
+      tags,
+      currentStage,
+    };
+  };
+
   const handleImport = async (type: 'csv' | 'excel') => {
     try {
       const input = document.createElement('input');
@@ -29,57 +162,66 @@ export default function CandidateList() {
         const file = e.target.files[0];
         if (!file) return;
 
+        const processData = (data: any[]) => {
+          const imported: Omit<Candidate, 'id'>[] = [];
+          const errors: string[] = [];
+
+          data.forEach((row, index) => {
+            const candidate = parseCandidateRow(row);
+            if (candidate) {
+              const isDuplicate = candidates.some((c) => c.phone === candidate.phone || c.email === candidate.email);
+              if (isDuplicate) {
+                errors.push(`第 ${index + 1} 行：${candidate.name}（电话/邮箱已存在）`);
+              } else {
+                imported.push(candidate);
+              }
+            } else {
+              errors.push(`第 ${index + 1} 行：缺少必填信息（姓名或电话）`);
+            }
+          });
+
+          if (imported.length > 0) {
+            importCandidates(imported);
+            let message = `成功导入 ${imported.length} 条候选人数据`;
+            if (errors.length > 0) {
+              message += `\n\n以下数据未导入：\n${errors.slice(0, 10).join('\n')}`;
+              if (errors.length > 10) {
+                message += `\n... 还有 ${errors.length - 10} 条错误`;
+              }
+            }
+            alert(message);
+          } else if (errors.length > 0) {
+            alert(`导入失败：\n${errors.slice(0, 10).join('\n')}`);
+          }
+        };
+
         if (type === 'csv') {
           Papa.parse(file, {
             header: true,
+            encoding: 'UTF-8',
             complete: (results: any) => {
-              const imported = results.data.map((row: any) => ({
-                name: row.name || row.姓名 || '',
-                phone: row.phone || row.电话 || '',
-                email: row.email || row.邮箱 || '',
-                position: row.position || row.岗位 || '',
-                department: row.department || row.部门 || '技术部',
-                education: row.education || row.学历 || '本科',
-                workExperience: parseInt(row.workExperience || row.工作经验 || '0'),
-                skills: (row.skills || row.技能 || '').split(',').map((s: string) => s.trim()).filter(Boolean),
-                expectedSalary: row.expectedSalary || row.期望薪资 || '',
-                status: (row.status || row.状态 || 'pending') as CandidateStatus,
-                appliedDate: row.appliedDate || row.申请日期 || new Date().toISOString().split('T')[0],
-                source: row.source || row.来源 || 'Boss直聘',
-                tags: (row.tags || row.标签 || '').split(',').map((s: string) => s.trim()).filter(Boolean),
-                currentStage: (row.currentStage || row.当前阶段 || 'resume_screen') as InterviewStage,
-              })).filter((c: any) => c.name && c.phone);
-              importCandidates(imported);
-              alert(`成功导入 ${imported.length} 条候选人数据`);
+              processData(results.data);
+            },
+            error: () => {
+              alert('CSV文件解析失败，请检查文件编码（建议使用UTF-8）');
             },
           });
         } else {
           const reader = new FileReader();
           reader.onload = (e: any) => {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-            const imported = jsonData.map((row: any) => ({
-              name: row.name || row.姓名 || '',
-              phone: row.phone || row.电话 || '',
-              email: row.email || row.邮箱 || '',
-              position: row.position || row.岗位 || '',
-              department: row.department || row.部门 || '技术部',
-              education: row.education || row.学历 || '本科',
-              workExperience: parseInt(row.workExperience || row.工作经验 || '0'),
-              skills: (row.skills || row.技能 || '').split(',').map((s: string) => s.trim()).filter(Boolean),
-              expectedSalary: row.expectedSalary || row.期望薪资 || '',
-              status: (row.status || row.状态 || 'pending') as CandidateStatus,
-              appliedDate: row.appliedDate || row.申请日期 || new Date().toISOString().split('T')[0],
-              source: row.source || row.来源 || 'Boss直聘',
-              tags: (row.tags || row.标签 || '').split(',').map((s: string) => s.trim()).filter(Boolean),
-              currentStage: (row.currentStage || row.当前阶段 || 'resume_screen') as InterviewStage,
-            })).filter((c: any) => c.name && c.phone);
-            importCandidates(imported);
-            alert(`成功导入 ${imported.length} 条候选人数据`);
+            try {
+              const data = new Uint8Array(e.target.result);
+              const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+              const sheetName = workbook.SheetNames[0];
+              const worksheet = workbook.Sheets[sheetName];
+              const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+              processData(jsonData);
+            } catch (err) {
+              alert('Excel文件解析失败，请检查文件格式');
+            }
+          };
+          reader.onerror = () => {
+            alert('文件读取失败');
           };
           reader.readAsArrayBuffer(file);
         }

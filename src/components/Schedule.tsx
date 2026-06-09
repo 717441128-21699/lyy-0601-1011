@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { stageLabels, stageColors, interviewTypeLabels, weekDays } from '../utils/constants';
+import { stageLabels, stageColors, interviewTypeLabels, weekDays, statusLabels, statusColors } from '../utils/constants';
 import { Interview, InterviewStage } from '../types';
 
 export default function Schedule() {
@@ -69,10 +69,19 @@ export default function Schedule() {
     if (!draggedInterview) return;
 
     const [startTime, endTime] = timeSlot.split('-');
-    if (isTimeSlotAvailable(draggedInterview.interviewerId, date, startTime, endTime)) {
-      rescheduleInterview(draggedInterview.id, date, startTime, endTime);
-    } else {
-      alert('该时段面试官已有安排，请选择其他时间');
+    const isSameInterviewer = draggedInterview.interviewerId;
+    const dateChanged = draggedInterview.date !== date;
+    const timeChanged = draggedInterview.startTime !== startTime || draggedInterview.endTime !== endTime;
+
+    if (dateChanged || timeChanged) {
+      if (isTimeSlotAvailable(isSameInterviewer, date, startTime, endTime)) {
+        rescheduleInterview(draggedInterview.id, date, startTime, endTime);
+        if (dateChanged) {
+          setSelectedDate(date);
+        }
+      } else {
+        alert('该时段面试官已有安排，请选择其他时间');
+      }
     }
     setDraggedInterview(null);
   };
@@ -109,26 +118,44 @@ export default function Schedule() {
       return;
     }
 
-    if (!isTimeSlotAvailable(
-      editingInterview.interviewerId!,
-      editingInterview.date!,
-      editingInterview.startTime!,
-      editingInterview.endTime!
-    )) {
-      alert('该时段面试官已有安排，请选择其他时间');
-      return;
-    }
-
     const interviewer = interviewers.find((i) => i.id === editingInterview.interviewerId);
     const candidate = candidates.find((c) => c.id === editingInterview.candidateId);
 
     if (isEditing && editingInterview.id) {
+      const originalInterview = interviews.find((i) => i.id === editingInterview.id);
+      const timeChanged = originalInterview && (
+        originalInterview.date !== editingInterview.date ||
+        originalInterview.startTime !== editingInterview.startTime ||
+        originalInterview.endTime !== editingInterview.endTime ||
+        originalInterview.interviewerId !== editingInterview.interviewerId
+      );
+
+      if (timeChanged && !isTimeSlotAvailable(
+        editingInterview.interviewerId!,
+        editingInterview.date!,
+        editingInterview.startTime!,
+        editingInterview.endTime!
+      )) {
+        alert('该时段面试官已有安排，请选择其他时间');
+        return;
+      }
+
       updateInterview(editingInterview.id, {
         ...editingInterview,
         interviewer: interviewer?.name,
         candidateName: candidate?.name,
       });
     } else {
+      if (!isTimeSlotAvailable(
+        editingInterview.interviewerId!,
+        editingInterview.date!,
+        editingInterview.startTime!,
+        editingInterview.endTime!
+      )) {
+        alert('该时段面试官已有安排，请选择其他时间');
+        return;
+      }
+
       addInterview({
         candidateId: editingInterview.candidateId!,
         candidateName: candidate?.name || '',
@@ -149,6 +176,12 @@ export default function Schedule() {
     setEditingInterview({});
   };
 
+  const handleMarkComplete = (interview: Interview) => {
+    if (confirm('确定要将此面试标记为已完成吗？完成后将进入待评价列表。')) {
+      updateInterview(interview.id, { status: 'completed' });
+    }
+  };
+
   const timeSlots = [
     '09:00-10:00', '10:00-11:00', '11:00-12:00',
     '13:30-14:30', '14:30-15:30', '15:30-16:30', '16:30-17:30',
@@ -156,10 +189,14 @@ export default function Schedule() {
 
   const getInterviewForSlot = (date: string, slot: string) => {
     const dayInterviews = getInterviewsByDate(date);
-    const [start, end] = slot.split('-');
+    const [slotStart, slotEnd] = slot.split('-');
     return dayInterviews.find((i) => {
-      return i.startTime <= end && i.endTime >= start;
+      return i.startTime < slotEnd && i.endTime > slotStart;
     });
+  };
+
+  const getInterviewsForCalendar = (date: string) => {
+    return getInterviewsByDate(date).sort((a, b) => a.startTime.localeCompare(b.startTime));
   };
 
   const isCurrentMonth = (date: Date) => {
@@ -202,7 +239,7 @@ export default function Schedule() {
             ))}
             {calendarDays.map((date, idx) => {
               const dateStr = date.toISOString().split('T')[0];
-              const dayInterviews = getInterviewsByDate(dateStr);
+              const dayInterviews = getInterviewsForCalendar(dateStr);
               const isToday = dateStr === today;
               const isSelected = dateStr === selectedDate;
               const isOtherMonth = !isCurrentMonth(date);
@@ -226,10 +263,15 @@ export default function Schedule() {
                         ...styles.miniInterview,
                         backgroundColor: stageColors[interview.stage] + '30',
                         borderLeftColor: stageColors[interview.stage],
+                        opacity: interview.status === 'cancelled' ? 0.4 : 1,
+                        textDecoration: interview.status === 'cancelled' ? 'line-through' : 'none',
                       }}
-                      title={`${interview.candidateName} - ${interview.startTime}`}
+                      title={`${interview.candidateName} - ${interview.startTime} [${statusLabels[interview.status]}]`}
                     >
                       {interview.startTime} {interview.candidateName}
+                      {interview.status !== 'scheduled' && (
+                        <span style={{ marginLeft: 4, color: statusColors[interview.status] }}>●</span>
+                      )}
                     </div>
                   ))}
                   {dayInterviews.length > 2 && (
@@ -265,9 +307,10 @@ export default function Schedule() {
                         ...styles.interviewCard,
                         borderLeftColor: stageColors[interview.stage],
                         backgroundColor: stageColors[interview.stage] + '15',
+                        opacity: interview.status === 'cancelled' ? 0.5 : 1,
                       }}
-                      draggable
-                      onDragStart={() => handleDragStart(interview)}
+                      draggable={interview.status === 'scheduled'}
+                      onDragStart={() => interview.status === 'scheduled' && handleDragStart(interview)}
                     >
                       <div style={styles.interviewHeader}>
                         <span style={{
@@ -277,13 +320,22 @@ export default function Schedule() {
                         }}>
                           {stageLabels[interview.stage]}
                         </span>
-                        <span style={styles.interviewTime}>
-                          {interview.startTime} - {interview.endTime}
+                        <span style={{
+                          ...styles.statusBadge,
+                          backgroundColor: statusColors[interview.status] + '20',
+                          color: statusColors[interview.status],
+                        }}>
+                          {statusLabels[interview.status]}
                         </span>
                       </div>
                       <div style={styles.interviewTitle}>{interview.candidateName}</div>
                       <div style={styles.interviewSubtitle}>
                         {interview.position} · {interview.interviewer}
+                      </div>
+                      <div style={styles.interviewTimeRow}>
+                        <span style={styles.interviewTime}>
+                          ⏰ {interview.startTime} - {interview.endTime}
+                        </span>
                       </div>
                       <div style={styles.interviewFooter}>
                         <span style={styles.locationTag}>📍 {interview.location}</span>
@@ -296,16 +348,38 @@ export default function Schedule() {
                         >
                           编辑
                         </button>
-                        <button
-                          style={styles.deleteBtn}
-                          onClick={() => {
-                            if (confirm('确定要取消此面试安排吗？')) {
-                              deleteInterview(interview.id);
-                            }
-                          }}
-                        >
-                          取消
-                        </button>
+                        {interview.status === 'scheduled' && (
+                          <button
+                            style={styles.completeBtn}
+                            onClick={() => handleMarkComplete(interview)}
+                          >
+                            ✓ 完成
+                          </button>
+                        )}
+                        {interview.status === 'scheduled' && (
+                          <button
+                            style={styles.deleteBtn}
+                            onClick={() => {
+                              if (confirm('确定要取消此面试安排吗？')) {
+                                updateInterview(interview.id, { status: 'cancelled' });
+                              }
+                            }}
+                          >
+                            取消
+                          </button>
+                        )}
+                        {interview.status === 'completed' && !interview.evaluation && (
+                          <button
+                            style={styles.evaluateBtn}
+                            onClick={() => {
+                              const { setActiveTab, setSelectedInterview } = useStore.getState();
+                              setSelectedInterview(interview);
+                              setActiveTab('evaluation');
+                            }}
+                          >
+                            📝 去评价
+                          </button>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -765,10 +839,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '11px',
     fontWeight: 500,
   },
-  interviewTime: {
-    fontSize: '12px',
-    color: '#666',
-  },
   interviewTitle: {
     fontSize: '15px',
     fontWeight: 500,
@@ -777,7 +847,10 @@ const styles: Record<string, React.CSSProperties> = {
   interviewSubtitle: {
     fontSize: '13px',
     color: '#666',
-    marginBottom: '8px',
+    marginBottom: '4px',
+  },
+  interviewTimeRow: {
+    marginBottom: '6px',
   },
   interviewFooter: {
     display: 'flex',
@@ -797,11 +870,26 @@ const styles: Record<string, React.CSSProperties> = {
   interviewActions: {
     display: 'flex',
     gap: '6px',
+    flexWrap: 'wrap',
   },
   actionBtn: {
     padding: '4px 10px',
     backgroundColor: '#f5f5f5',
     color: '#666',
+    borderRadius: '4px',
+    fontSize: '12px',
+  },
+  completeBtn: {
+    padding: '4px 10px',
+    backgroundColor: '#e8f5e9',
+    color: '#388e3c',
+    borderRadius: '4px',
+    fontSize: '12px',
+  },
+  evaluateBtn: {
+    padding: '4px 10px',
+    backgroundColor: '#fff3e0',
+    color: '#f57c00',
     borderRadius: '4px',
     fontSize: '12px',
   },
