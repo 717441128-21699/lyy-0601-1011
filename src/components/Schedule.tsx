@@ -8,7 +8,8 @@ export default function Schedule() {
   const {
     interviews, interviewers, candidates, getInterviewsByDate, getInterviewsByInterviewer,
     getInterviewerFreeSlots, isTimeSlotAvailable, addInterview, getInterviewerWorkload,
-    updateInterview, deleteInterview, rescheduleInterview, getUpcomingInterviews, getAlternativeSlots
+    updateInterview, deleteInterview, rescheduleInterview, getUpcomingInterviews, getAlternativeSlots,
+    scheduleDraft, setScheduleDraft,
   } = useStore();
 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -25,6 +26,34 @@ export default function Schedule() {
     interviewId: string;
     alternativeSlots: { start: string; end: string }[];
   } | null>(null);
+
+  useEffect(() => {
+    if (scheduleDraft) {
+      const candidate = candidates.find((c) => c.id === scheduleDraft.candidateId);
+      if (candidate) {
+        setEditingInterview({
+          candidateId: candidate.id,
+          candidateName: candidate.name,
+          position: candidate.position,
+          date: selectedDate,
+          startTime: '09:00',
+          endTime: '10:00',
+          interviewerId: interviewers[0]?.id || '',
+          interviewer: interviewers[0]?.name || '',
+          stage: scheduleDraft.stage,
+          location: '会议室A',
+          type: 'onsite',
+          status: 'scheduled',
+          remarks: '',
+        });
+        setIsEditing(false);
+        setConflictInfo(null);
+        setShowModal(true);
+        setViewMode('calendar');
+        setTimeout(() => setScheduleDraft(null), 500);
+      }
+    }
+  }, [scheduleDraft, candidates, interviewers, selectedDate, setScheduleDraft]);
 
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear();

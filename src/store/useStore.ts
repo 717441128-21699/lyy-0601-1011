@@ -29,6 +29,9 @@ interface AppState {
   selectedCandidate: Candidate | null;
   selectedInterview: Interview | null;
   selectedCandidateIds: string[];
+  selectedCandidateForDetail: string | null;
+  notificationDraft: { candidateId: string; templateType: string } | null;
+  scheduleDraft: { candidateId: string; stage: InterviewStage } | null;
 
   setActiveTab: (tab: string) => void;
   setSearchKeyword: (keyword: string) => void;
@@ -39,6 +42,9 @@ interface AppState {
   setSelectedInterview: (interview: Interview | null) => void;
   setSelectedCandidateIds: (ids: string[]) => void;
   toggleSelectedCandidateId: (id: string) => void;
+  setSelectedCandidateForDetail: (id: string | null) => void;
+  setNotificationDraft: (draft: { candidateId: string; templateType: string } | null) => void;
+  setScheduleDraft: (draft: { candidateId: string; stage: InterviewStage } | null) => void;
 
   addCandidate: (candidate: Omit<Candidate, 'id'>) => void;
   updateCandidate: (id: string, updates: Partial<Candidate>) => void;
@@ -108,6 +114,9 @@ export const useStore = create<AppState>()(
       selectedCandidate: null,
       selectedInterview: null,
       selectedCandidateIds: [],
+      selectedCandidateForDetail: null,
+      notificationDraft: null,
+      scheduleDraft: null,
 
       setActiveTab: (tab) => set({ activeTab: tab }),
       setSearchKeyword: (keyword) => set({ searchKeyword: keyword }),
@@ -122,6 +131,9 @@ export const useStore = create<AppState>()(
           ? state.selectedCandidateIds.filter((i) => i !== id)
           : [...state.selectedCandidateIds, id],
       })),
+      setSelectedCandidateForDetail: (id) => set({ selectedCandidateForDetail: id }),
+      setNotificationDraft: (draft) => set({ notificationDraft: draft }),
+      setScheduleDraft: (draft) => set({ scheduleDraft: draft }),
 
       addCandidate: (candidate) =>
         set((state) => ({

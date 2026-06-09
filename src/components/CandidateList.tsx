@@ -1,9 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../store/useStore';
-import { statusLabels, statusColors, stageLabels, stageColors, sourceOptions, educationOptions, departmentOptions, talentGroupLabels, talentGroupColors, timelineTypeLabels, timelineTypeColors } from '../utils/constants';
-import { Candidate, CandidateStatus, InterviewStage, TalentPoolGroup } from '../types';
+import { statusLabels, statusColors, stageLabels, stageColors, sourceOptions, educationOptions, departmentOptions, talentGroupLabels, talentGroupColors, timelineTypeLabels, timelineTypeColors, nextActionTypeLabels } from '../utils/constants';
+import { Candidate, CandidateStatus, InterviewStage, TalentPoolGroup, TimelineEvent, NextAction, Interview, CommunicationRecord, NotificationRecord } from '../types';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+
+const typeLabels: Record<string, string> = {
+  interview_invite: '面试邀请',
+  reminder: '面试提醒',
+  rejection: '未通过通知',
+  offer: '录用通知',
+  feedback: '面试反馈',
+};
 
 export default function CandidateList() {
   const {
@@ -14,7 +22,9 @@ export default function CandidateList() {
     filterTalentGroup, setFilterTalentGroup,
     selectedCandidateIds, setSelectedCandidateIds, toggleSelectedCandidateId,
     updateCandidateTalentGroup, batchUpdateCandidateStage, batchAddCommunicationRecord,
-    getTimelineByCandidate,
+    getTimelineByCandidate, getNextActionsByCandidate,
+    selectedCandidateForDetail, setSelectedCandidateForDetail,
+    communicationRecords, notificationRecords, interviews,
   } = useStore();
 
   const [showModal, setShowModal] = useState(false);
@@ -25,6 +35,19 @@ export default function CandidateList() {
   const [batchAction, setBatchAction] = useState<'stage' | 'communication' | null>(null);
   const [batchStage, setBatchStage] = useState<InterviewStage>('phone_interview');
   const [batchCommunication, setBatchCommunication] = useState('');
+  const [timelineFilter, setTimelineFilter] = useState<string>('all');
+
+  useEffect(() => {
+    if (selectedCandidateForDetail) {
+      const candidate = candidates.find((c) => c.id === selectedCandidateForDetail);
+      if (candidate) {
+        setSelectedCandidate(candidate);
+        setShowDetail(true);
+        setTimelineFilter('all');
+        setTimeout(() => setSelectedCandidateForDetail(null), 500);
+      }
+    }
+  }, [selectedCandidateForDetail, candidates, setSelectedCandidate, setSelectedCandidateForDetail]);
 
   const positionOptions = [...new Set(candidates.map((c) => c.position))];
 
@@ -160,6 +183,90 @@ export default function CandidateList() {
       currentStage,
       talentPoolGroup: 'normal' as TalentPoolGroup,
     };
+  };
+
+  const getFullTimeline = (candidateId: string) => {
+    const timelineEvents = getTimelineByCandidate(candidateId);
+    const candidateInterviews = getInterviewsByCandidate(candidateId);
+    const candidateComms = communicationRecords.filter((c) => c.candidateId === candidateId);
+    const candidateNotifications = notificationRecords.filter((n) => n.candidateId === candidateId);
+    const candidateNextActions = getNextActionsByCandidate(candidateId);
+
+    const allEvents: (TimelineEvent & { originalType: string })[] = [];
+
+    timelineEvents.forEach((e) => {
+      allEvents.push({ ...e, originalType: e.type });
+    });
+
+    candidateInterviews.forEach((i) => {
+      if (i.evaluation) {
+        allEvents.push({
+          id: `eval-${i.id}`,
+          candidateId,
+          type: 'evaluation',
+          originalType: 'evaluation',
+          title: `面试评价 - ${stageLabels[i.stage]}`,
+          content: `综合评分: ${i.evaluation.overallScore}分 | 建议: ${i.evaluation.comments}`,
+          createdAt: i.evaluation.completedAt,
+          createdBy: i.interviewer,
+          metadata: { score: i.evaluation.overallScore },
+        });
+      }
+      allEvents.push({
+        id: `interview-${i.id}`,
+        candidateId,
+        type: 'interview',
+        originalType: 'interview',
+        title: `${stageLabels[i.stage]} - ${i.status === 'completed' ? '已完成' : i.status === 'scheduled' ? '已安排' : i.status}`,
+        content: `${i.date} ${i.startTime}-${i.endTime} | ${i.interviewer} | ${i.location}${i.remarks ? ` | 备注: ${i.remarks}` : ''}`,
+        createdAt: i.date,
+        createdBy: i.interviewer,
+        metadata: { status: i.status },
+      });
+    });
+
+    candidateComms.forEach((c) => {
+      allEvents.push({
+        id: `comm-${c.id}`,
+        candidateId,
+        type: 'communication',
+        originalType: 'communication',
+        title: `沟通记录 - ${c.type === 'call' ? '电话' : c.type === 'email' ? '邮件' : c.type === 'meeting' ? '会议' : '备注'}`,
+        content: c.content,
+        createdAt: c.createdAt,
+        createdBy: c.createdBy,
+      });
+    });
+
+    candidateNotifications.forEach((n) => {
+      allEvents.push({
+        id: `notif-${n.id}`,
+        candidateId,
+        type: 'communication',
+        originalType: 'notification',
+        title: `通知发送 - ${typeLabels[n.type] || n.type}`,
+        content: `${n.subject}\n${n.content.substring(0, 100)}${n.content.length > 100 ? '...' : ''}`,
+        createdAt: n.sentAt,
+        createdBy: '系统',
+        metadata: { status: n.status, channel: n.channel },
+      });
+    });
+
+    candidateNextActions.forEach((a) => {
+      allEvents.push({
+        id: `action-${a.id}`,
+        candidateId,
+        type: 'next_action',
+        originalType: a.type,
+        title: `${a.status === 'completed' ? '✓ ' : ''}${nextActionTypeLabels[a.type] || a.type}`,
+        content: `${a.description} | 截止: ${a.dueDate}`,
+        createdAt: a.createdAt,
+        createdBy: a.createdBy,
+        metadata: { status: a.status, priority: a.priority },
+      });
+    });
+
+    return allEvents.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   };
 
   const handleImport = async (type: 'csv' | 'excel') => {
@@ -827,47 +934,100 @@ export default function CandidateList() {
               </div>
 
               <div style={styles.detailSection}>
-                <h4 style={styles.sectionTitle}>📊 时间线</h4>
-                {getTimelineByCandidate(selectedCandidate.id).length > 0 ? (
-                  <div style={styles.timelineContainer}>
-                    {getTimelineByCandidate(selectedCandidate.id).sort((a, b) => 
-                      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-                    ).map((event, idx) => (
-                      <div key={event.id} style={styles.timelineItem}>
-                        <div style={styles.timelineDot}>
-                          <div style={{
-                            ...styles.timelineDotInner,
-                            backgroundColor: timelineTypeColors[event.type],
-                          }} />
-                        </div>
-                        {idx < getTimelineByCandidate(selectedCandidate.id).length - 1 && (
-                          <div style={styles.timelineLine} />
-                        )}
-                        <div style={styles.timelineContent}>
-                          <div style={styles.timelineHeader}>
-                            <span style={{
-                              ...styles.timelineTypeBadge,
-                              backgroundColor: timelineTypeColors[event.type] + '20',
-                              color: timelineTypeColors[event.type],
-                            }}>
-                              {timelineTypeLabels[event.type]}
-                            </span>
-                            <span style={styles.timelineDate}>
-                              {event.createdAt}
-                            </span>
-                          </div>
-                          <div style={styles.timelineTitle}>{event.title}</div>
-                          {event.content && (
-                            <div style={styles.timelineDesc}>{event.content}</div>
-                          )}
-                          <div style={styles.timelineAuthor}>👤 {event.createdBy}</div>
-                        </div>
-                      </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h4 style={{ ...styles.sectionTitle, margin: 0 }}>📊 完整时间线</h4>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      { value: 'all', label: '全部' },
+                      { value: 'stage_change', label: '阶段变更' },
+                      { value: 'status_change', label: '状态变更' },
+                      { value: 'interview', label: '面试' },
+                      { value: 'evaluation', label: '评价' },
+                      { value: 'communication', label: '沟通' },
+                      { value: 'next_action', label: '待办' },
+                      { value: 'rejection', label: '淘汰' },
+                    ].map((filter) => (
+                      <button
+                        key={filter.value}
+                        onClick={() => setTimelineFilter(filter.value)}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          border: `1px solid ${timelineFilter === filter.value ? '#2196f3' : '#ddd'}`,
+                          backgroundColor: timelineFilter === filter.value ? '#2196f3' : '#fff',
+                          color: timelineFilter === filter.value ? '#fff' : '#666',
+                          borderRadius: '12px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {filter.label}
+                      </button>
                     ))}
                   </div>
-                ) : (
-                  <div style={{ color: '#999' }}>暂无时间线记录</div>
-                )}
+                </div>
+                {(() => {
+                  const fullTimeline = getFullTimeline(selectedCandidate.id);
+                  const filteredTimeline = timelineFilter === 'all'
+                    ? fullTimeline
+                    : fullTimeline.filter((e) => {
+                        if (timelineFilter === 'communication') return e.type === 'communication' || e.originalType === 'notification';
+                        return e.type === timelineFilter || e.originalType === timelineFilter;
+                      });
+                  
+                  if (filteredTimeline.length === 0) {
+                    return <div style={{ color: '#999' }}>暂无时间线记录</div>;
+                  }
+                  
+                  return (
+                    <div style={styles.timelineContainer}>
+                      {filteredTimeline.map((event, idx) => {
+                        const isRejection = event.type === 'rejection' || event.originalType === 'rejection';
+                        const eventColor = isRejection ? '#f44336' : timelineTypeColors[event.type] || '#999';
+                        const eventLabel = isRejection ? '❌ 淘汰' : (timelineTypeLabels[event.type] || event.type);
+                        return (
+                          <div key={event.id} style={{
+                            ...styles.timelineItem,
+                            ...(isRejection ? { backgroundColor: '#ffebee30', borderRadius: '8px' } : {}),
+                          }}>
+                            <div style={styles.timelineDot}>
+                              <div style={{
+                                ...styles.timelineDotInner,
+                                backgroundColor: eventColor,
+                              }} />
+                            </div>
+                            {idx < filteredTimeline.length - 1 && (
+                              <div style={styles.timelineLine} />
+                            )}
+                            <div style={styles.timelineContent}>
+                              <div style={styles.timelineHeader}>
+                                <span style={{
+                                  ...styles.timelineTypeBadge,
+                                  backgroundColor: eventColor + '20',
+                                  color: eventColor,
+                                }}>
+                                  {eventLabel}
+                                </span>
+                                <span style={styles.timelineDate}>
+                                  {event.createdAt}
+                                </span>
+                              </div>
+                              <div style={{
+                                ...styles.timelineTitle,
+                                ...(isRejection ? { color: '#f44336', fontWeight: 600 } : {}),
+                              }}>
+                                {event.title}
+                              </div>
+                              {event.content && (
+                                <div style={styles.timelineDesc}>{event.content}</div>
+                              )}
+                              <div style={styles.timelineAuthor}>👤 {event.createdBy}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             <div style={styles.modalFooter}>

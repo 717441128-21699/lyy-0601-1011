@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { NotificationTemplate, NotificationRecord, Candidate, Interview } from '../types';
 
@@ -34,7 +34,7 @@ export default function Notifications() {
   const {
     templates, candidates, interviews, notificationRecords, communicationRecords,
     addTemplate, updateTemplate, deleteTemplate, addNotificationRecord,
-    searchCommunications,
+    searchCommunications, notificationDraft, setNotificationDraft,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<'templates' | 'generate' | 'history' | 'search'>('templates');
@@ -60,6 +60,39 @@ export default function Notifications() {
     { value: 'offer', label: '录用通知' },
     { value: 'feedback', label: '面试反馈' },
   ];
+
+  useEffect(() => {
+    if (notificationDraft) {
+      const candidate = candidates.find((c) => c.id === notificationDraft.candidateId);
+      if (candidate) {
+        setActiveTab('generate');
+        setSelectedType(notificationDraft.templateType);
+        setSelectedCandidates([candidate.id]);
+        const defaultTemplate = templates.find((t) => t.type === notificationDraft.templateType);
+        if (defaultTemplate) {
+          setSelectedTemplateId(defaultTemplate.id);
+          setTimeout(() => {
+            let content = defaultTemplate.content;
+            let subject = defaultTemplate.subject;
+            const replacements: Record<string, string> = {
+              '公司名': companyInfo.name,
+              '联系电话': companyInfo.phone,
+              '联系邮箱': companyInfo.email,
+              '候选人姓名': candidate.name,
+              '岗位名称': candidate.position,
+            };
+            Object.entries(replacements).forEach(([key, value]) => {
+              content = content.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+              subject = subject.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+            });
+            setGeneratedContent(content);
+            setGeneratedSubject(subject);
+          }, 100);
+        }
+        setTimeout(() => setNotificationDraft(null), 500);
+      }
+    }
+  }, [notificationDraft, candidates, templates, companyInfo, setNotificationDraft]);
 
   const filteredTemplates = selectedType
     ? templates.filter((t) => t.type === selectedType)

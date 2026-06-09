@@ -81,6 +81,7 @@ export const timelineTypeLabels: Record<string, string> = {
   evaluation: '评价',
   communication: '沟通',
   next_action: '下一步',
+  rejection: '❌ 淘汰',
 };
 
 export const timelineTypeColors: Record<string, string> = {
@@ -90,13 +91,29 @@ export const timelineTypeColors: Record<string, string> = {
   evaluation: '#9c27b0',
   communication: '#00bcd4',
   next_action: '#f44336',
+  rejection: '#f44336',
 };
 
 export const nextActionTypeLabels: Record<string, string> = {
-  next_round: '安排下一轮',
-  offer: '发Offer',
-  rejection: '淘汰通知',
-  follow_up: '跟进沟通',
+  next_round: '📅 安排下一轮',
+  offer: '💼 发Offer',
+  rejection: '❌ 淘汰通知',
+  follow_up: '📞 跟进沟通',
+  send_offer: '✉️ 发送Offer',
+  send_rejection: '✉️ 发送淘汰通知',
+  schedule_interview: '📅 安排面试',
+  review: '🔍 重新评估',
+};
+
+export const nextActionTypeColors: Record<string, string> = {
+  next_round: '#2196f3',
+  offer: '#4caf50',
+  rejection: '#f44336',
+  follow_up: '#ff9800',
+  send_offer: '#4caf50',
+  send_rejection: '#f44336',
+  schedule_interview: '#2196f3',
+  review: '#ff9800',
 };
 
 export const scheduleViewLabels: Record<string, string> = {

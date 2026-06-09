@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import {
   statusLabels, statusColors, stageLabels, stageColors,
-  recommendationLabels, recommendationColors
+  recommendationLabels, recommendationColors, talentGroupLabels
 } from '../utils/constants';
 import { Candidate, InterviewStage } from '../types';
 import * as XLSX from 'xlsx';
@@ -286,24 +286,86 @@ export default function Analytics() {
       const wb = XLSX.utils.book_new();
       const now = new Date().toISOString().replace('T', ' ').substr(0, 16);
 
+      const filteredByPosition = filteredCandidates.reduce((acc, c) => {
+        if (!acc[c.position]) {
+          acc[c.position] = { total: 0, passed: 0, rejected: 0, interviewing: 0 };
+        }
+        acc[c.position].total++;
+        if (c.status === 'passed') acc[c.position].passed++;
+        if (c.status === 'rejected') acc[c.position].rejected++;
+        if (c.status === 'interviewing') acc[c.position].interviewing++;
+        return acc;
+      }, {} as Record<string, { total: number; passed: number; rejected: number; interviewing: number }>);
+
+      const filteredTrendData = (() => {
+        const stages: { key: InterviewStage; name: string }[] = [
+          { key: 'resume_screen', name: '简历筛选' },
+          { key: 'phone_interview', name: '电话面试' },
+          { key: 'tech_interview', name: '技术面试' },
+          { key: 'hr_interview', name: 'HR面试' },
+          { key: 'final_interview', name: '终面' },
+          { key: 'offer', name: '发Offer' },
+        ];
+        const trendPositions = filterPosition ? [filterPosition] : [...new Set(filteredCandidates.map((c) => c.position))];
+        return trendPositions.map((pos) => {
+          const posCandidates = filteredCandidates.filter((c) => c.position === pos);
+          const monthlyData: Record<string, Record<string, number>> = {};
+          posCandidates.forEach((c) => {
+            const month = c.appliedDate.substring(0, 7);
+            if (!monthlyData[month]) {
+              monthlyData[month] = { 简历筛选: 0, 电话面试: 0, 技术面试: 0, HR面试: 0, 终面: 0, 发Offer: 0 };
+            }
+            stages.forEach((stage) => {
+              const stageOrder = stages.map((s) => s.key);
+              const currentIdx = stageOrder.indexOf(c.currentStage);
+              const targetIdx = stageOrder.indexOf(stage.key);
+              if (currentIdx >= targetIdx) {
+                monthlyData[month][stage.name]++;
+              }
+            });
+          });
+          const monthlyTrend = Object.entries(monthlyData)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([month, data]) => ({
+              月份: month,
+              ...data,
+            }));
+          return { position: pos, monthlyTrend };
+        });
+      })();
+
       const summaryData = [
-        { 项目: '招聘复盘报告', 数值: '', 说明: '' },
+        { 项目: '📊 招聘复盘报告', 数值: '', 说明: '' },
         { 项目: '导出时间', 数值: now, 说明: '' },
         { 项目: '筛选条件', 数值: getFilterDesc(), 说明: '' },
         { 项目: '', 数值: '', 说明: '' },
-        { 项目: '招聘概览', 数值: '', 说明: '' },
+        { 项目: '📈 招聘概览', 数值: '', 说明: '' },
         { 项目: '筛选后候选人总数', 数值: filteredCandidates.length, 说明: '人' },
         { 项目: '面试中', 数值: filteredCandidates.filter(c => c.status === 'interviewing').length, 说明: '人' },
         { 项目: '已通过', 数值: filteredCandidates.filter(c => c.status === 'passed').length, 说明: '人' },
         { 项目: '已淘汰', 数值: filteredCandidates.filter(c => c.status === 'rejected').length, 说明: '人' },
         { 项目: '已入职', 数值: filteredCandidates.filter(c => c.status === 'hired').length, 说明: '人' },
         { 项目: '', 数值: '', 说明: '' },
-        { 项目: '转化率分析', 数值: '', 说明: '' },
+        { 项目: '📉 转化率分析', 数值: '', 说明: '' },
         { 项目: '整体通过率', 数值: filteredCandidates.length > 0 ? Math.round((filteredCandidates.filter(c => c.status === 'passed' || c.status === 'hired').length / filteredCandidates.length) * 100) : 0, 说明: '%' },
         { 项目: '淘汰率', 数值: filteredCandidates.length > 0 ? Math.round((filteredCandidates.filter(c => c.status === 'rejected').length / filteredCandidates.length) * 100) : 0, 说明: '%' },
+        { 项目: '面试到场率', 数值: interviews.filter(i => filteredCandidates.some(c => c.id === i.candidateId)).length > 0
+          ? Math.round((interviews.filter(i => i.status === 'completed' && filteredCandidates.some(c => c.id === i.candidateId)).length /
+            interviews.filter(i => filteredCandidates.some(c => c.id === i.candidateId)).length) * 100) : 0, 说明: '%' },
+        { 项目: '', 数值: '', 说明: '' },
+        { 项目: '📋 数据说明', 数值: '', 说明: '' },
+        { 项目: '统计范围', 数值: '当前筛选条件下的所有候选人', 说明: '' },
+        { 项目: '在招岗位数', 数值: Object.keys(filteredByPosition).length, 说明: '个' },
+        { 项目: '面试官参与数', 数值: [...new Set(interviews.filter(i => filteredCandidates.some(c => c.id === i.candidateId)).map(i => i.interviewerId))].length, 说明: '人' },
       ];
       const ws1 = XLSX.utils.json_to_sheet(summaryData, { skipHeader: true });
-      ws1['!cols'] = [{ wch: 25 }, { wch: 20 }, { wch: 15 }];
+      ws1['!cols'] = [{ wch: 25 }, { wch: 25 }, { wch: 15 }];
+      ws1['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },
+        { s: { r: 4, c: 0 }, e: { r: 4, c: 2 } },
+        { s: { r: 10, c: 0 }, e: { r: 10, c: 2 } },
+        { s: { r: 15, c: 0 }, e: { r: 15, c: 2 } },
+      ];
       XLSX.utils.book_append_sheet(wb, ws1, '1.招聘概览');
 
       const stageData = (() => {
@@ -322,25 +384,27 @@ export default function Analytics() {
           return {
             阶段: stageLabels[stage as keyof typeof stageLabels],
             人数: count,
+            占比: filteredCandidates.length > 0 ? Math.round((count / filteredCandidates.length) * 100) + '%' : '0%',
             转化率: prevCount > 0 ? Math.round((count / prevCount) * 100) + '%' : '-',
-            留存率: filteredCandidates.length > 0 ? Math.round((count / filteredCandidates.length) * 100) + '%' : '0%',
+            流失人数: prevCount - count,
           };
         });
       })();
       const ws2 = XLSX.utils.json_to_sheet(stageData);
-      ws2['!cols'] = [{ wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+      ws2['!cols'] = [{ wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
       XLSX.utils.book_append_sheet(wb, ws2, '2.阶段漏斗');
 
-      const positionSummary = Object.entries(stats.byPosition).map(([name, data]) => ({
+      const positionSummary = Object.entries(filteredByPosition).map(([name, data]) => ({
         岗位: name,
         总人数: data.total,
         面试中: data.interviewing,
         已通过: data.passed,
         已淘汰: data.rejected,
-        通过率: data.total > 0 ? Math.round(((data.passed) / data.total) * 100) + '%' : '0%',
+        通过率: data.total > 0 ? Math.round((data.passed / data.total) * 100) + '%' : '0%',
+        淘汰率: data.total > 0 ? Math.round((data.rejected / data.total) * 100) + '%' : '0%',
       }));
       const ws3 = XLSX.utils.json_to_sheet(positionSummary);
-      ws3['!cols'] = [{ wch: 25 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+      ws3['!cols'] = [{ wch: 25 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
       XLSX.utils.book_append_sheet(wb, ws3, '3.岗位分析');
 
       const candidatesData = dataSource.map((c) => ({
@@ -355,10 +419,16 @@ export default function Analytics() {
         期望薪资: c.expectedSalary,
         状态: statusLabels[c.status],
         当前阶段: stageLabels[c.currentStage],
+        人才池: talentGroupLabels[c.talentPoolGroup],
         申请日期: c.appliedDate,
         来源: c.source,
       }));
       const ws4 = XLSX.utils.json_to_sheet(candidatesData);
+      ws4['!cols'] = [
+        { wch: 12 }, { wch: 15 }, { wch: 25 }, { wch: 20 }, { wch: 12 },
+        { wch: 10 }, { wch: 12 }, { wch: 30 }, { wch: 12 }, { wch: 10 },
+        { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+      ];
       XLSX.utils.book_append_sheet(wb, ws4, '4.候选人明细');
 
       const evaluationsData = interviews
@@ -376,15 +446,21 @@ export default function Analytics() {
           问题解决: i.evaluation!.problemSolving,
           建议薪资: formatSalary(i.evaluation!.suggestedSalary),
           录用建议: recommendationLabels[i.evaluation!.recommendation],
+          备注: i.remarks || '',
           评价内容: i.evaluation!.comments,
         }));
       if (evaluationsData.length > 0) {
         const ws5 = XLSX.utils.json_to_sheet(evaluationsData);
+        ws5['!cols'] = [
+          { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+          { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+          { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 40 },
+        ];
         XLSX.utils.book_append_sheet(wb, ws5, '5.评价明细');
       }
 
-      if (trendData.length > 0 && trendData[0].monthlyTrend.length > 0) {
-        const trendExportData = trendData.flatMap((pos) =>
+      if (filteredTrendData.length > 0 && filteredTrendData[0].monthlyTrend.length > 0) {
+        const trendExportData = filteredTrendData.flatMap((pos) =>
           pos.monthlyTrend.map((m) => ({
             岗位: pos.position,
             月份: m.月份,
@@ -397,7 +473,39 @@ export default function Analytics() {
           }))
         );
         const ws6 = XLSX.utils.json_to_sheet(trendExportData);
+        ws6['!cols'] = [
+          { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+          { wch: 10 }, { wch: 10 }, { wch: 10 },
+        ];
         XLSX.utils.book_append_sheet(wb, ws6, '6.月度趋势');
+      }
+
+      const addSheetStyle = (ws: any, headerRows: number = 1) => {
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          for (let R = range.s.r; R <= range.e.r; ++R) {
+            const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+            if (cell) {
+              cell.s = {
+                alignment: {
+                  wrapText: true,
+                  vertical: 'center',
+                  horizontal: R < headerRows ? 'center' : 'left',
+                },
+              };
+              if (R < headerRows) {
+                cell.s.fill = { fgColor: { rgb: 'FFE8F4FD' } };
+                cell.s.font = { bold: true };
+              }
+            }
+          }
+        }
+      };
+
+      [ws1, ws2, ws3, ws4].forEach(ws => addSheetStyle(ws, 1));
+      if (evaluationsData.length > 0) addSheetStyle(wb.Sheets['5.评价明细'], 1);
+      if (filteredTrendData.length > 0 && filteredTrendData[0].monthlyTrend.length > 0) {
+        addSheetStyle(wb.Sheets['6.月度趋势'], 1);
       }
 
       fileName = `招聘复盘报告_${getFilterDesc()}_${new Date().toISOString().split('T')[0]}.xlsx`;

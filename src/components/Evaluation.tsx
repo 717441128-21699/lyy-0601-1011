@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { stageLabels, stageColors, recommendationLabels, recommendationColors, timelineTypeLabels, timelineTypeColors, nextActionTypeLabels } from '../utils/constants';
+import { stageLabels, stageColors, recommendationLabels, recommendationColors, timelineTypeLabels, timelineTypeColors, nextActionTypeLabels, nextActionTypeColors } from '../utils/constants';
 import { InterviewEvaluation, CandidateStatus, InterviewStage, NextActionType } from '../types';
 
 export default function Evaluation() {
@@ -10,6 +10,7 @@ export default function Evaluation() {
     selectedInterview, setSelectedInterview, getInterviewsByCandidate,
     addTimelineEvent, addNextAction, getTimelineByCandidate, getNextActionsByCandidate,
     updateNextAction, completeNextAction, getPendingNextActions,
+    setActiveTab, setSelectedCandidateForDetail, setNotificationDraft, setScheduleDraft,
   } = useStore();
 
   const normalizeSalary = (salary: string | undefined): string => {
@@ -357,6 +358,7 @@ export default function Evaluation() {
             {pendingNextActions.map((action) => {
               const candidate = candidates.find((c) => c.id === action.candidateId);
               const isOverdue = new Date(action.dueDate) < new Date() && action.status === 'pending';
+              const typeColor = nextActionTypeColors[action.type] || '#999';
               return (
                 <div key={action.id} style={{
                   ...styles.todoItem,
@@ -366,8 +368,8 @@ export default function Evaluation() {
                     <div style={styles.todoItemHeader}>
                       <span style={{
                         ...styles.todoTypeBadge,
-                        backgroundColor: action.priority === 'high' ? '#ffebee' : '#fff3e0',
-                        color: action.priority === 'high' ? '#f44336' : '#f57c00',
+                        backgroundColor: typeColor + '20',
+                        color: typeColor,
                       }}>
                         {nextActionTypeLabels[action.type]}
                       </span>
@@ -376,7 +378,7 @@ export default function Evaluation() {
                         backgroundColor: action.priority === 'high' ? '#ffebee' : '#fff3e0',
                         color: action.priority === 'high' ? '#f44336' : '#f57c00',
                       }}>
-                        {action.priority === 'high' ? '高优先级' : '中优先级'}
+                        {action.priority === 'high' ? '高优先级' : action.priority === 'low' ? '低优先级' : '中优先级'}
                       </span>
                     </div>
                     <div style={styles.todoItemTitle}>
@@ -395,22 +397,61 @@ export default function Evaluation() {
                       style={styles.todoCompleteBtn}
                       onClick={() => {
                         completeNextAction(action.id);
+                        addTimelineEvent({
+                          candidateId: action.candidateId,
+                          type: 'next_action',
+                          title: '待办已完成',
+                          content: action.title,
+                          createdAt: new Date().toISOString().replace('T', ' ').substr(0, 16),
+                          createdBy: '招聘负责人',
+                        });
                         alert('已标记为完成');
                       }}
                     >
                       ✓ 完成
                     </button>
+                    {(action.type === 'send_offer' || action.type === 'send_rejection') && (
+                      <button
+                        style={{ ...styles.todoActionBtn, background: '#4caf50' }}
+                        onClick={() => {
+                          if (candidate) {
+                            const templateType = action.type === 'send_offer' ? 'offer' : 'rejection';
+                            setNotificationDraft({ candidateId: candidate.id, templateType });
+                            setActiveTab('notifications');
+                          }
+                        }}
+                      >
+                        ✉️ 生成通知
+                      </button>
+                    )}
+                    {action.type === 'schedule_interview' && (
+                      <button
+                        style={{ ...styles.todoActionBtn, background: '#2196f3' }}
+                        onClick={() => {
+                          if (candidate) {
+                            const stage = action.description.includes('电话面试') ? 'phone_interview'
+                              : action.description.includes('技术面试') ? 'tech_interview'
+                              : action.description.includes('HR面试') ? 'hr_interview'
+                              : action.description.includes('终面') ? 'final_interview'
+                              : 'tech_interview';
+                            setScheduleDraft({ candidateId: candidate.id, stage: stage as InterviewStage });
+                            setActiveTab('schedule');
+                          }
+                        }}
+                      >
+                        📅 去排班
+                      </button>
+                    )}
                     <button
                       style={styles.todoViewBtn}
                       onClick={() => {
                         if (candidate) {
-                          const { setSelectedCandidate } = useStore.getState();
-                          setSelectedCandidate(candidate);
-                          useStore.getState().setActiveTab('candidates');
+                          setSelectedCandidateForDetail(candidate.id);
+                          setActiveTab('candidates');
                         }
                       }}
                     >
-                      查看候选人
+                      👁️ 查看候选人
                     </button>
                   </div>
                 </div>
@@ -1214,6 +1255,17 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '4px',
     fontSize: '12px',
     whiteSpace: 'nowrap',
+    cursor: 'pointer',
+    border: 'none',
+  },
+  todoActionBtn: {
+    padding: '6px 12px',
+    color: '#fff',
+    borderRadius: '4px',
+    fontSize: '12px',
+    whiteSpace: 'nowrap',
+    cursor: 'pointer',
+    border: 'none',
   },
   todoViewBtn: {
     padding: '6px 12px',
@@ -1222,5 +1274,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '4px',
     fontSize: '12px',
     whiteSpace: 'nowrap',
+    cursor: 'pointer',
+    border: 'none',
   },
 };
