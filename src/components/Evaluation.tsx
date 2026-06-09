@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { stageLabels, stageColors, recommendationLabels, recommendationColors } from '../utils/constants';
-import { InterviewEvaluation, CandidateStatus, InterviewStage } from '../types';
+import { stageLabels, stageColors, recommendationLabels, recommendationColors, timelineTypeLabels, timelineTypeColors, nextActionTypeLabels } from '../utils/constants';
+import { InterviewEvaluation, CandidateStatus, InterviewStage, NextActionType } from '../types';
 
 export default function Evaluation() {
   const {
     interviews, candidates, updateInterviewEvaluation,
     updateCandidateStatus, addCommunicationRecord,
-    selectedInterview, setSelectedInterview, getInterviewsByCandidate
+    selectedInterview, setSelectedInterview, getInterviewsByCandidate,
+    addTimelineEvent, addNextAction, getTimelineByCandidate, getNextActionsByCandidate,
+    updateNextAction, completeNextAction, getPendingNextActions,
   } = useStore();
 
   const normalizeSalary = (salary: string | undefined): string => {
@@ -49,6 +51,7 @@ export default function Evaluation() {
   const [strengthInput, setStrengthInput] = useState('');
   const [weaknessInput, setWeaknessInput] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'completed'>('pending');
+  const [showTodoPanel, setShowTodoPanel] = useState(true);
 
   const pendingInterviews = interviews.filter((i) => i.status === 'completed' && !i.evaluation);
   const completedInterviews = interviews.filter((i) => i.evaluation);
@@ -171,12 +174,28 @@ export default function Evaluation() {
       newStatus === 'rejected' ? '，已淘汰' :
       newStage !== selectedInterview.stage ? `，进入下一阶段：${stageLabels[newStage]}` : '';
 
+    const now = new Date().toISOString().replace('T', ' ').substr(0, 16);
+
     addCommunicationRecord({
       candidateId: selectedInterview.candidateId,
       type: 'note',
       content: `【${stageLabels[selectedInterview.stage]}】面试完成。评分：${evaluation.overallScore}/10（技术${evaluation.technicalSkills}，沟通${evaluation.communication}，协作${evaluation.teamwork}，问题解决${evaluation.problemSolving}）。建议：${recommendationLabels[evaluation.recommendation || 'hire']}${salaryText}${stageText}。评价：${evaluation.comments}`,
-      createdAt: new Date().toISOString().replace('T', ' ').substr(0, 16),
+      createdAt: now,
       createdBy: '招聘负责人',
+    });
+
+    addTimelineEvent({
+      candidateId: selectedInterview.candidateId,
+      type: 'evaluation',
+      title: `${stageLabels[selectedInterview.stage]}面试评价完成`,
+      content: `评分：${evaluation.overallScore}/10，建议：${recommendationLabels[evaluation.recommendation || 'hire']}${salaryText}`,
+      createdAt: now,
+      createdBy: '招聘负责人',
+      metadata: {
+        stage: selectedInterview.stage,
+        score: evaluation.overallScore,
+        recommendation: evaluation.recommendation,
+      },
     });
 
     if (newStatus === 'rejected') {
@@ -184,14 +203,83 @@ export default function Evaluation() {
         candidateId: selectedInterview.candidateId,
         type: 'note',
         content: `候选人已淘汰。原因：${evaluation.weaknesses?.join('、') || '综合评估未通过'}`,
-        createdAt: new Date().toISOString().replace('T', ' ').substr(0, 16),
+        createdAt: now,
+        createdBy: '招聘负责人',
+      });
+      addTimelineEvent({
+        candidateId: selectedInterview.candidateId,
+        type: 'rejection',
+        title: '候选人已淘汰',
+        content: `原因：${evaluation.weaknesses?.join('、') || '综合评估未通过'}`,
+        createdAt: now,
+        createdBy: '招聘负责人',
+      });
+      addNextAction({
+        candidateId: selectedInterview.candidateId,
+        type: 'send_rejection',
+        title: '发送淘汰通知',
+        description: `向${candidate?.name || selectedInterview.candidateName}发送淘汰通知邮件/短信`,
+        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        priority: 'medium',
+        status: 'pending',
+        createdBy: '招聘负责人',
+      });
+    } else if (newStatus === 'passed' || newStage === 'offer') {
+      addTimelineEvent({
+        candidateId: selectedInterview.candidateId,
+        type: 'stage_change',
+        title: '进入Offer阶段',
+        content: '面试通过，准备发放Offer',
+        createdAt: now,
+        createdBy: '招聘负责人',
+        metadata: { newStage: 'offer' },
+      });
+      addNextAction({
+        candidateId: selectedInterview.candidateId,
+        type: 'send_offer',
+        title: '发送Offer',
+        description: `向${candidate?.name || selectedInterview.candidateName}发送Offer，建议薪资：${normalizedSalary}`,
+        dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        priority: 'high',
+        status: 'pending',
+        createdBy: '招聘负责人',
+      });
+    } else if (newStage !== selectedInterview.stage) {
+      addTimelineEvent({
+        candidateId: selectedInterview.candidateId,
+        type: 'stage_change',
+        title: '进入下一阶段',
+        content: `从${stageLabels[selectedInterview.stage]}进入${stageLabels[newStage]}`,
+        createdAt: now,
+        createdBy: '招聘负责人',
+        metadata: { oldStage: selectedInterview.stage, newStage },
+      });
+      addNextAction({
+        candidateId: selectedInterview.candidateId,
+        type: 'schedule_interview',
+        title: `安排${stageLabels[newStage]}面试`,
+        description: `与面试官协调时间，为${candidate?.name || selectedInterview.candidateName}安排${stageLabels[newStage]}`,
+        dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        priority: 'high',
+        status: 'pending',
+        createdBy: '招聘负责人',
+      });
+    } else if (evaluation.recommendation === 'borderline') {
+      addNextAction({
+        candidateId: selectedInterview.candidateId,
+        type: 'review',
+        title: '重新评估候选人',
+        description: `${candidate?.name || selectedInterview.candidateName}评估结果为待定，需要进一步讨论`,
+        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        priority: 'medium',
+        status: 'pending',
         createdBy: '招聘负责人',
       });
     }
 
     setShowModal(false);
     setSelectedInterview(null);
-    alert('评价已保存');
+    alert('评价已保存，已自动生成下一步动作');
   };
 
   const ScoreSlider = ({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) => (
@@ -211,12 +299,30 @@ export default function Evaluation() {
     </div>
   );
 
+  const pendingNextActions = getPendingNextActions();
+
   return (
     <div style={styles.container}>
       <div style={styles.toolbar}>
         <div style={styles.toolbarLeft}>
           <h2 style={styles.title}>评价记录</h2>
           <span style={styles.countBadge}>待评价 {pendingInterviews.length} 场</span>
+          {pendingNextActions.length > 0 && (
+            <span style={{ ...styles.countBadge, backgroundColor: '#fff3e0', color: '#f57c00' }}>
+              待办 {pendingNextActions.length} 项
+            </span>
+          )}
+        </div>
+        <div style={styles.toolbarRight}>
+          <button
+            style={{
+              ...styles.secondaryBtn,
+              ...(showTodoPanel ? { backgroundColor: '#e3f2fd', color: '#1976d2' } : {}),
+            }}
+            onClick={() => setShowTodoPanel(!showTodoPanel)}
+          >
+            {showTodoPanel ? '隐藏待办' : '显示待办'}
+          </button>
         </div>
         <div style={styles.filterTabs}>
           {[
@@ -238,6 +344,81 @@ export default function Evaluation() {
           ))}
         </div>
       </div>
+
+      {showTodoPanel && pendingNextActions.length > 0 && (
+        <div style={styles.todoPanel}>
+          <div style={styles.todoPanelHeader}>
+            <h4 style={styles.todoPanelTitle}>📋 待办事项</h4>
+            <span style={{ fontSize: '12px', color: '#999' }}>
+              由评价结果自动生成
+            </span>
+          </div>
+          <div style={styles.todoList}>
+            {pendingNextActions.map((action) => {
+              const candidate = candidates.find((c) => c.id === action.candidateId);
+              const isOverdue = new Date(action.dueDate) < new Date() && action.status === 'pending';
+              return (
+                <div key={action.id} style={{
+                  ...styles.todoItem,
+                  ...(isOverdue ? styles.todoItemOverdue : {}),
+                }}>
+                  <div style={styles.todoItemMain}>
+                    <div style={styles.todoItemHeader}>
+                      <span style={{
+                        ...styles.todoTypeBadge,
+                        backgroundColor: action.priority === 'high' ? '#ffebee' : '#fff3e0',
+                        color: action.priority === 'high' ? '#f44336' : '#f57c00',
+                      }}>
+                        {nextActionTypeLabels[action.type]}
+                      </span>
+                      <span style={{
+                        ...styles.priorityBadge,
+                        backgroundColor: action.priority === 'high' ? '#ffebee' : '#fff3e0',
+                        color: action.priority === 'high' ? '#f44336' : '#f57c00',
+                      }}>
+                        {action.priority === 'high' ? '高优先级' : '中优先级'}
+                      </span>
+                    </div>
+                    <div style={styles.todoItemTitle}>
+                      {candidate?.name || '未知候选人'} - {action.title}
+                    </div>
+                    <div style={styles.todoItemDesc}>{action.description}</div>
+                    <div style={styles.todoItemMeta}>
+                      <span style={{ color: isOverdue ? '#f44336' : '#999' }}>
+                        📅 截止：{action.dueDate}
+                      </span>
+                      <span style={{ color: '#999' }}>👤 {action.createdBy}</span>
+                    </div>
+                  </div>
+                  <div style={styles.todoItemActions}>
+                    <button
+                      style={styles.todoCompleteBtn}
+                      onClick={() => {
+                        completeNextAction(action.id);
+                        alert('已标记为完成');
+                      }}
+                    >
+                      ✓ 完成
+                    </button>
+                    <button
+                      style={styles.todoViewBtn}
+                      onClick={() => {
+                        if (candidate) {
+                          const { setSelectedCandidate } = useStore.getState();
+                          setSelectedCandidate(candidate);
+                          useStore.getState().setActiveTab('candidates');
+                        }
+                      }}
+                    >
+                      查看候选人
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={styles.listContainer}>
         {displayInterviews.length > 0 ? (
@@ -275,6 +456,12 @@ export default function Evaluation() {
                       <span style={styles.metaItem}>⏰ {interview.startTime} - {interview.endTime}</span>
                       <span style={styles.metaItem}>📍 {interview.location}</span>
                     </div>
+
+                    {interview.remarks && (
+                      <div style={styles.remarksBox}>
+                        📝 {interview.remarks}
+                      </div>
+                    )}
 
                     {hasEvaluation && interview.evaluation ? (
                       <div style={styles.evaluationPreview}>
@@ -932,5 +1119,108 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #ddd',
     borderRadius: '6px',
     fontSize: '14px',
+  },
+  remarksBox: {
+    padding: '8px 10px',
+    backgroundColor: '#fff8e1',
+    borderRadius: '4px',
+    fontSize: '12px',
+    color: '#795548',
+    marginBottom: '12px',
+    lineHeight: 1.5,
+  },
+  todoPanel: {
+    backgroundColor: '#fff',
+    borderRadius: '8px',
+    marginBottom: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    overflow: 'hidden',
+  },
+  todoPanelHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '12px 16px',
+    backgroundColor: '#fafafa',
+    borderBottom: '1px solid #eee',
+  },
+  todoPanelTitle: {
+    margin: 0,
+    fontSize: '14px',
+    fontWeight: 600,
+  },
+  todoList: {
+    maxHeight: '300px',
+    overflowY: 'auto',
+  },
+  todoItem: {
+    display: 'flex',
+    gap: '16px',
+    padding: '12px 16px',
+    borderBottom: '1px solid #f0f0f0',
+    transition: 'background-color 0.2s',
+  },
+  todoItemOverdue: {
+    backgroundColor: '#ffebee30',
+  },
+  todoItemMain: {
+    flex: 1,
+  },
+  todoItemHeader: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '4px',
+    alignItems: 'center',
+  },
+  todoTypeBadge: {
+    padding: '2px 8px',
+    borderRadius: '10px',
+    fontSize: '11px',
+    fontWeight: 500,
+  },
+  priorityBadge: {
+    padding: '2px 8px',
+    borderRadius: '10px',
+    fontSize: '11px',
+    fontWeight: 500,
+  },
+  todoItemTitle: {
+    fontSize: '14px',
+    fontWeight: 500,
+    marginBottom: '4px',
+    color: '#333',
+  },
+  todoItemDesc: {
+    fontSize: '12px',
+    color: '#666',
+    marginBottom: '6px',
+    lineHeight: 1.5,
+  },
+  todoItemMeta: {
+    display: 'flex',
+    gap: '16px',
+    fontSize: '11px',
+  },
+  todoItemActions: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    justifyContent: 'center',
+  },
+  todoCompleteBtn: {
+    padding: '6px 12px',
+    backgroundColor: '#e8f5e9',
+    color: '#388e3c',
+    borderRadius: '4px',
+    fontSize: '12px',
+    whiteSpace: 'nowrap',
+  },
+  todoViewBtn: {
+    padding: '6px 12px',
+    backgroundColor: '#f5f5f5',
+    color: '#666',
+    borderRadius: '4px',
+    fontSize: '12px',
+    whiteSpace: 'nowrap',
   },
 };

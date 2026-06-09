@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
-import { statusLabels, statusColors, stageLabels, stageColors, sourceOptions, educationOptions, departmentOptions } from '../utils/constants';
-import { Candidate, CandidateStatus, InterviewStage } from '../types';
+import { statusLabels, statusColors, stageLabels, stageColors, sourceOptions, educationOptions, departmentOptions, talentGroupLabels, talentGroupColors, timelineTypeLabels, timelineTypeColors } from '../utils/constants';
+import { Candidate, CandidateStatus, InterviewStage, TalentPoolGroup } from '../types';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 
@@ -10,13 +10,21 @@ export default function CandidateList() {
     candidates, positions, getFilteredCandidates, searchKeyword, setSearchKeyword,
     filterPosition, setFilterPosition, filterStatus, setFilterStatus,
     selectedCandidate, setSelectedCandidate, addCandidate, updateCandidate,
-    updateCandidateStatus, deleteCandidate, importCandidates, getInterviewsByCandidate
+    updateCandidateStatus, deleteCandidate, importCandidates, getInterviewsByCandidate,
+    filterTalentGroup, setFilterTalentGroup,
+    selectedCandidateIds, setSelectedCandidateIds, toggleSelectedCandidateId,
+    updateCandidateTalentGroup, batchUpdateCandidateStage, batchAddCommunicationRecord,
+    getTimelineByCandidate,
   } = useStore();
 
   const [showModal, setShowModal] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [editingCandidate, setEditingCandidate] = useState<Partial<Candidate>>({});
   const [isEditing, setIsEditing] = useState(false);
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchAction, setBatchAction] = useState<'stage' | 'communication' | null>(null);
+  const [batchStage, setBatchStage] = useState<InterviewStage>('phone_interview');
+  const [batchCommunication, setBatchCommunication] = useState('');
 
   const positionOptions = [...new Set(candidates.map((c) => c.position))];
 
@@ -150,6 +158,7 @@ export default function CandidateList() {
       source,
       tags,
       currentStage,
+      talentPoolGroup: 'normal' as TalentPoolGroup,
     };
   };
 
@@ -256,6 +265,7 @@ export default function CandidateList() {
         source: editingCandidate.source || 'Boss直聘',
         tags: editingCandidate.tags || [],
         currentStage: editingCandidate.currentStage || 'resume_screen',
+        talentPoolGroup: editingCandidate.talentPoolGroup || 'normal',
       });
     }
 
@@ -275,6 +285,43 @@ export default function CandidateList() {
     setShowDetail(true);
   };
 
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedCandidateIds(filteredCandidates.map((c) => c.id));
+    } else {
+      setSelectedCandidateIds([]);
+    }
+  };
+
+  const handleBatchStageChange = () => {
+    if (selectedCandidateIds.length === 0) {
+      alert('请先选择候选人');
+      return;
+    }
+    batchUpdateCandidateStage(selectedCandidateIds, batchStage);
+    setShowBatchModal(false);
+    setBatchAction(null);
+    setSelectedCandidateIds([]);
+    alert(`已更新 ${selectedCandidateIds.length} 位候选人的阶段`);
+  };
+
+  const handleBatchAddCommunication = () => {
+    if (selectedCandidateIds.length === 0) {
+      alert('请先选择候选人');
+      return;
+    }
+    if (!batchCommunication.trim()) {
+      alert('请填写沟通内容');
+      return;
+    }
+    batchAddCommunicationRecord(selectedCandidateIds, batchCommunication.trim());
+    setShowBatchModal(false);
+    setBatchAction(null);
+    setBatchCommunication('');
+    setSelectedCandidateIds([]);
+    alert(`已为 ${selectedCandidateIds.length} 位候选人添加沟通记录`);
+  };
+
   const filteredCandidates = getFilteredCandidates();
 
   return (
@@ -283,8 +330,35 @@ export default function CandidateList() {
         <div style={styles.toolbarLeft}>
           <h2 style={styles.title}>候选人列表</h2>
           <span style={styles.countBadge}>{filteredCandidates.length} 人</span>
+          {selectedCandidateIds.length > 0 && (
+            <span style={styles.selectedCountBadge}>
+              已选择 {selectedCandidateIds.length} 人
+            </span>
+          )}
         </div>
         <div style={styles.toolbarRight}>
+          {selectedCandidateIds.length > 0 && (
+            <>
+              <button
+                style={styles.secondaryBtn}
+                onClick={() => { setBatchAction('stage'); setShowBatchModal(true); }}
+              >
+                📋 批量改阶段
+              </button>
+              <button
+                style={styles.secondaryBtn}
+                onClick={() => { setBatchAction('communication'); setShowBatchModal(true); }}
+              >
+                💬 批量沟通记录
+              </button>
+              <button
+                style={styles.secondaryBtn}
+                onClick={() => setSelectedCandidateIds([])}
+              >
+                取消选择
+              </button>
+            </>
+          )}
           <button style={styles.secondaryBtn} onClick={() => handleImport('csv')}>
             📄 导入CSV
           </button>
@@ -325,9 +399,19 @@ export default function CandidateList() {
             <option key={key} value={key}>{label}</option>
           ))}
         </select>
+        <select
+          style={styles.select}
+          value={filterTalentGroup}
+          onChange={(e) => setFilterTalentGroup(e.target.value as any)}
+        >
+          <option value="">全部分组</option>
+          {Object.entries(talentGroupLabels).map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
         <button
           style={styles.resetBtn}
-          onClick={() => { setSearchKeyword(''); setFilterPosition(''); setFilterStatus(''); }}
+          onClick={() => { setSearchKeyword(''); setFilterPosition(''); setFilterStatus(''); setFilterTalentGroup(''); }}
         >
           重置筛选
         </button>
@@ -337,7 +421,16 @@ export default function CandidateList() {
         <table>
           <thead>
             <tr>
+              <th style={{ width: '40px' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedCandidateIds.length === filteredCandidates.length && filteredCandidates.length > 0}
+                  onChange={(e) => handleSelectAll(e.target.checked)}
+                  style={styles.checkbox}
+                />
+              </th>
               <th>候选人</th>
+              <th>人才池</th>
               <th>岗位</th>
               <th>学历</th>
               <th>工作年限</th>
@@ -351,7 +444,19 @@ export default function CandidateList() {
           </thead>
           <tbody>
             {filteredCandidates.map((candidate) => (
-              <tr key={candidate.id} style={styles.tableRow}>
+              <tr key={candidate.id} style={{
+                ...styles.tableRow,
+                ...(selectedCandidateIds.includes(candidate.id) ? styles.selectedRow : {}),
+              }}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selectedCandidateIds.includes(candidate.id)}
+                    onChange={() => toggleSelectedCandidateId(candidate.id)}
+                    style={styles.checkbox}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </td>
                 <td>
                   <div style={styles.candidateInfo}>
                     <div style={styles.avatar}>{candidate.name.charAt(0)}</div>
@@ -361,6 +466,18 @@ export default function CandidateList() {
                       <div style={styles.candidateContact}>{candidate.email}</div>
                     </div>
                   </div>
+                </td>
+                <td>
+                  <select
+                    style={styles.talentGroupSelect}
+                    value={candidate.talentPoolGroup}
+                    onChange={(e) => updateCandidateTalentGroup(candidate.id, e.target.value as TalentPoolGroup)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {Object.entries(talentGroupLabels).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
                 </td>
                 <td>
                   <div>{candidate.position}</div>
@@ -576,6 +693,20 @@ export default function CandidateList() {
                   </select>
                 </div>
                 <div style={styles.formGroup}>
+                  <label style={styles.label}>人才池分组</label>
+                  <select
+                    style={styles.input}
+                    value={editingCandidate.talentPoolGroup || 'normal'}
+                    onChange={(e) => setEditingCandidate({ ...editingCandidate, talentPoolGroup: e.target.value as TalentPoolGroup })}
+                  >
+                    {Object.entries(talentGroupLabels).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
                   <label style={styles.label}>申请日期</label>
                   <input
                     type="date"
@@ -608,7 +739,7 @@ export default function CandidateList() {
                   <div style={{ color: '#666', marginBottom: '4px' }}>
                     {selectedCandidate.position} · {selectedCandidate.department}
                   </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{
                       ...styles.statusBadge,
                       backgroundColor: statusColors[selectedCandidate.status] + '20',
@@ -622,6 +753,13 @@ export default function CandidateList() {
                       color: stageColors[selectedCandidate.currentStage],
                     }}>
                       {stageLabels[selectedCandidate.currentStage]}
+                    </span>
+                    <span style={{
+                      ...styles.stageBadge,
+                      backgroundColor: talentGroupColors[selectedCandidate.talentPoolGroup] + '20',
+                      color: talentGroupColors[selectedCandidate.talentPoolGroup],
+                    }}>
+                      {talentGroupLabels[selectedCandidate.talentPoolGroup]}
                     </span>
                   </div>
                 </div>
@@ -667,6 +805,11 @@ export default function CandidateList() {
                         <div style={{ color: '#666', fontSize: '13px' }}>
                           面试官：{interview.interviewer} · {interview.location}
                         </div>
+                        {interview.remarks && (
+                          <div style={{ marginTop: '6px', padding: '6px 10px', backgroundColor: '#fff8e1', borderRadius: '4px', fontSize: '12px', color: '#795548' }}>
+                            📝 {interview.remarks}
+                          </div>
+                        )}
                         {interview.evaluation && (
                           <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#f9f9f9', borderRadius: '4px' }}>
                             <div style={{ marginBottom: '4px' }}>
@@ -682,6 +825,50 @@ export default function CandidateList() {
                   <div style={{ color: '#999' }}>暂无面试记录</div>
                 )}
               </div>
+
+              <div style={styles.detailSection}>
+                <h4 style={styles.sectionTitle}>📊 时间线</h4>
+                {getTimelineByCandidate(selectedCandidate.id).length > 0 ? (
+                  <div style={styles.timelineContainer}>
+                    {getTimelineByCandidate(selectedCandidate.id).sort((a, b) => 
+                      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                    ).map((event, idx) => (
+                      <div key={event.id} style={styles.timelineItem}>
+                        <div style={styles.timelineDot}>
+                          <div style={{
+                            ...styles.timelineDotInner,
+                            backgroundColor: timelineTypeColors[event.type],
+                          }} />
+                        </div>
+                        {idx < getTimelineByCandidate(selectedCandidate.id).length - 1 && (
+                          <div style={styles.timelineLine} />
+                        )}
+                        <div style={styles.timelineContent}>
+                          <div style={styles.timelineHeader}>
+                            <span style={{
+                              ...styles.timelineTypeBadge,
+                              backgroundColor: timelineTypeColors[event.type] + '20',
+                              color: timelineTypeColors[event.type],
+                            }}>
+                              {timelineTypeLabels[event.type]}
+                            </span>
+                            <span style={styles.timelineDate}>
+                              {event.createdAt}
+                            </span>
+                          </div>
+                          <div style={styles.timelineTitle}>{event.title}</div>
+                          {event.content && (
+                            <div style={styles.timelineDesc}>{event.content}</div>
+                          )}
+                          <div style={styles.timelineAuthor}>👤 {event.createdBy}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: '#999' }}>暂无时间线记录</div>
+                )}
+              </div>
             </div>
             <div style={styles.modalFooter}>
               <button style={styles.cancelBtn} onClick={() => { setShowDetail(false); setSelectedCandidate(null); }}>关闭</button>
@@ -693,6 +880,59 @@ export default function CandidateList() {
                 }}
               >
                 编辑信息
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBatchModal && (
+        <div style={styles.modalOverlay}>
+          <div style={{ ...styles.modal, width: '500px' }}>
+            <h3 style={styles.modalTitle}>
+              {batchAction === 'stage' ? '批量更新阶段' : '批量添加沟通记录'}
+            </h3>
+            <div style={styles.modalBody}>
+              <div style={{ marginBottom: '12px', color: '#666', fontSize: '13px' }}>
+                已选择 {selectedCandidateIds.length} 位候选人
+              </div>
+              {batchAction === 'stage' ? (
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>选择目标阶段</label>
+                  <select
+                    style={styles.input}
+                    value={batchStage}
+                    onChange={(e) => setBatchStage(e.target.value as InterviewStage)}
+                  >
+                    {Object.entries(stageLabels).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>沟通内容</label>
+                  <textarea
+                    style={{ ...styles.input, minHeight: '120px', resize: 'vertical' }}
+                    value={batchCommunication}
+                    onChange={(e) => setBatchCommunication(e.target.value)}
+                    placeholder="请输入沟通内容..."
+                  />
+                </div>
+              )}
+            </div>
+            <div style={styles.modalFooter}>
+              <button
+                style={styles.cancelBtn}
+                onClick={() => { setShowBatchModal(false); setBatchAction(null); }}
+              >
+                取消
+              </button>
+              <button
+                style={styles.primaryBtn}
+                onClick={batchAction === 'stage' ? handleBatchStageChange : handleBatchAddCommunication}
+              >
+                确认
               </button>
             </div>
           </div>
@@ -970,5 +1210,100 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: '#fafafa',
     borderRadius: '6px',
     marginBottom: '8px',
+  },
+  selectedCountBadge: {
+    padding: '4px 12px',
+    backgroundColor: '#fff3e0',
+    color: '#f57c00',
+    borderRadius: '12px',
+    fontSize: '13px',
+  },
+  checkbox: {
+    width: '16px',
+    height: '16px',
+    cursor: 'pointer',
+  },
+  selectedRow: {
+    backgroundColor: '#e3f2fd30',
+  },
+  talentGroupSelect: {
+    padding: '4px 8px',
+    border: '1px solid #ddd',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    backgroundColor: '#fff',
+  },
+  timelineContainer: {
+    position: 'relative',
+    paddingLeft: '8px',
+  },
+  timelineItem: {
+    position: 'relative',
+    paddingLeft: '32px',
+    paddingBottom: '20px',
+    minHeight: '60px',
+  },
+  timelineDot: {
+    position: 'absolute',
+    left: 0,
+    top: '4px',
+    width: '16px',
+    height: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineDotInner: {
+    width: '12px',
+    height: '12px',
+    borderRadius: '50%',
+    border: '2px solid #fff',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+  },
+  timelineLine: {
+    position: 'absolute',
+    left: '7px',
+    top: '20px',
+    bottom: '0',
+    width: '2px',
+    backgroundColor: '#e0e0e0',
+  },
+  timelineContent: {
+    flex: 1,
+  },
+  timelineHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '4px',
+    flexWrap: 'wrap',
+    gap: '8px',
+  },
+  timelineTypeBadge: {
+    padding: '2px 8px',
+    borderRadius: '10px',
+    fontSize: '11px',
+    fontWeight: 500,
+  },
+  timelineDate: {
+    fontSize: '11px',
+    color: '#999',
+  },
+  timelineTitle: {
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#333',
+    marginBottom: '2px',
+  },
+  timelineDesc: {
+    fontSize: '12px',
+    color: '#666',
+    marginBottom: '4px',
+    lineHeight: 1.5,
+  },
+  timelineAuthor: {
+    fontSize: '11px',
+    color: '#999',
   },
 };

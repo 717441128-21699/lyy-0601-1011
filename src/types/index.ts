@@ -1,3 +1,5 @@
+export type TalentPoolGroup = 'normal' | 'star' | 'backup' | 'suspended';
+
 export interface Candidate {
   id: string;
   name: string;
@@ -15,6 +17,7 @@ export interface Candidate {
   source: string;
   tags: string[];
   currentStage: InterviewStage;
+  talentPoolGroup: TalentPoolGroup;
 }
 
 export type CandidateStatus = 'pending' | 'interviewing' | 'passed' | 'rejected' | 'hired';
@@ -35,6 +38,7 @@ export interface Interview {
   location: string;
   type: 'onsite' | 'online' | 'phone';
   status: 'scheduled' | 'completed' | 'cancelled' | 'no_show';
+  remarks?: string;
   evaluation?: InterviewEvaluation;
 }
 
@@ -110,4 +114,41 @@ export interface Position {
   headcount: number;
   hiredCount: number;
   status: 'open' | 'closed' | 'on_hold';
+}
+
+export interface FilterPreset {
+  id: string;
+  name: string;
+  position: string;
+  startDate: string;
+  endDate: string;
+  createdAt: string;
+}
+
+export interface TimelineEvent {
+  id: string;
+  candidateId: string;
+  type: 'stage_change' | 'status_change' | 'interview' | 'evaluation' | 'communication' | 'next_action' | 'rejection';
+  title: string;
+  content: string;
+  createdAt: string;
+  createdBy: string;
+  metadata?: Record<string, any>;
+}
+
+export type NextActionType = 'next_round' | 'offer' | 'rejection' | 'follow_up' | 'send_offer' | 'send_rejection' | 'schedule_interview' | 'review';
+
+export interface NextAction {
+  id: string;
+  candidateId: string;
+  interviewId?: string;
+  type: NextActionType;
+  title: string;
+  description: string;
+  dueDate: string;
+  priority: 'high' | 'medium' | 'low';
+  createdBy: string;
+  status: 'pending' | 'completed' | 'cancelled';
+  createdAt: string;
+  completedAt?: string;
 }

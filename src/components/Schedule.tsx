@@ -1,13 +1,14 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { stageLabels, stageColors, interviewTypeLabels, weekDays, statusLabels, statusColors } from '../utils/constants';
+import { stageLabels, stageColors, interviewTypeLabels, weekDays, statusLabels, statusColors, scheduleViewLabels } from '../utils/constants';
 import { Interview, InterviewStage } from '../types';
+import { format, addDays, startOfWeek, endOfWeek } from 'date-fns';
 
 export default function Schedule() {
   const {
-    interviews, interviewers, candidates, getInterviewsByDate,
-    getInterviewerFreeSlots, isTimeSlotAvailable, addInterview,
-    updateInterview, deleteInterview, rescheduleInterview, getUpcomingInterviews
+    interviews, interviewers, candidates, getInterviewsByDate, getInterviewsByInterviewer,
+    getInterviewerFreeSlots, isTimeSlotAvailable, addInterview, getInterviewerWorkload,
+    updateInterview, deleteInterview, rescheduleInterview, getUpcomingInterviews, getAlternativeSlots
   } = useStore();
 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -18,6 +19,12 @@ export default function Schedule() {
   const [editingInterview, setEditingInterview] = useState<Partial<Interview>>({});
   const [isEditing, setIsEditing] = useState(false);
   const [draggedInterview, setDraggedInterview] = useState<Interview | null>(null);
+  const [viewMode, setViewMode] = useState<'calendar' | 'interviewer'>('calendar');
+  const [conflictInfo, setConflictInfo] = useState<{
+    hasConflict: boolean;
+    interviewId: string;
+    alternativeSlots: { start: string; end: string }[];
+  } | null>(null);
 
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -42,6 +49,62 @@ export default function Schedule() {
 
   const today = new Date().toISOString().split('T')[0];
   const upcoming = getUpcomingInterviews();
+
+  const weekStart = useMemo(() => format(startOfWeek(new Date(selectedDate), { weekStartsOn: 1 }), 'yyyy-MM-dd'), [selectedDate]);
+  const weekEnd = useMemo(() => format(endOfWeek(new Date(selectedDate), { weekStartsOn: 1 }), 'yyyy-MM-dd'), [selectedDate]);
+
+  const interviewerWorkloads = useMemo(() => {
+    return interviewers.map((interviewer) => {
+      const workload = getInterviewerWorkload(interviewer.id, weekStart, weekEnd);
+      const dayInterviews = getInterviewsByInterviewer(interviewer.id, selectedDate);
+      return {
+        ...interviewer,
+        ...workload,
+        dayInterviews: dayInterviews.sort((a, b) => a.startTime.localeCompare(b.startTime)),
+      };
+    });
+  }, [interviewers, selectedDate, weekStart, weekEnd, getInterviewerWorkload, getInterviewsByInterviewer]);
+
+  const weekDaysList = useMemo(() => {
+    const days: string[] = [];
+    const start = startOfWeek(new Date(selectedDate), { weekStartsOn: 1 });
+    for (let i = 0; i < 7; i++) {
+      days.push(format(addDays(start, i), 'yyyy-MM-dd'));
+    }
+    return days;
+  }, [selectedDate]);
+
+  const getInterviewerInterviewsForDate = (interviewerId: string, date: string) => {
+    return getInterviewsByInterviewer(interviewerId, date)
+      .filter((i) => i.status !== 'cancelled')
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  };
+
+  const checkForConflicts = (interview: Interview) => {
+    const dayInterviews = getInterviewsByInterviewer(interview.interviewerId, interview.date)
+      .filter((i) => i.id !== interview.id && i.status !== 'cancelled');
+    
+    const hasConflict = dayInterviews.some((i) => {
+      return i.startTime < interview.endTime && i.endTime > interview.startTime;
+    });
+
+    if (hasConflict) {
+      const duration = (parseInt(interview.endTime.replace(':', '')) - parseInt(interview.startTime.replace(':', ''))) * 60 / 100;
+      const alternatives = getAlternativeSlots(
+        interview.interviewerId,
+        interview.date,
+        duration,
+        { start: interview.startTime, end: interview.endTime }
+      );
+      setConflictInfo({
+        hasConflict: true,
+        interviewId: interview.id,
+        alternativeSlots: alternatives,
+      });
+    } else {
+      setConflictInfo(null);
+    }
+  };
 
   const handlePrevMonth = () => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
@@ -101,14 +164,17 @@ export default function Schedule() {
       location: '会议室A',
       type: 'onsite',
       status: 'scheduled',
+      remarks: '',
     });
     setIsEditing(false);
+    setConflictInfo(null);
     setShowModal(true);
   };
 
   const handleEditInterview = (interview: Interview) => {
     setEditingInterview({ ...interview });
     setIsEditing(true);
+    checkForConflicts(interview);
     setShowModal(true);
   };
 
@@ -144,6 +210,7 @@ export default function Schedule() {
         ...editingInterview,
         interviewer: interviewer?.name,
         candidateName: candidate?.name,
+        remarks: editingInterview.remarks,
       });
     } else {
       if (!isTimeSlotAvailable(
@@ -169,11 +236,13 @@ export default function Schedule() {
         location: editingInterview.location || '',
         type: editingInterview.type as 'onsite' | 'online' | 'phone' || 'onsite',
         status: 'scheduled',
+        remarks: editingInterview.remarks || '',
       });
     }
 
     setShowModal(false);
     setEditingInterview({});
+    setConflictInfo(null);
   };
 
   const handleMarkComplete = (interview: Interview) => {
@@ -211,6 +280,20 @@ export default function Schedule() {
         <div style={styles.toolbarLeft}>
           <h2 style={styles.title}>日程排布</h2>
           <span style={styles.countBadge}>今日 {getInterviewsByDate(today).length} 场</span>
+          <div style={styles.viewToggle}>
+            {Object.entries(scheduleViewLabels).map(([key, label]) => (
+              <button
+                key={key}
+                style={{
+                  ...styles.viewToggleBtn,
+                  ...(viewMode === key ? styles.viewToggleBtnActive : {}),
+                }}
+                onClick={() => setViewMode(key as 'calendar' | 'interviewer')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <div style={styles.toolbarRight}>
           <button style={styles.secondaryBtn} onClick={() => setShowFreeSlots(true)}>
@@ -223,7 +306,9 @@ export default function Schedule() {
       </div>
 
       <div style={styles.mainContent}>
-        <div style={styles.leftPanel}>
+        {viewMode === 'calendar' ? (
+          <>
+            <div style={styles.leftPanel}>
           <div style={styles.calendarHeader}>
             <button style={styles.navBtn} onClick={handlePrevMonth}>◀</button>
             <h3 style={styles.monthTitle}>
@@ -266,9 +351,12 @@ export default function Schedule() {
                         opacity: interview.status === 'cancelled' ? 0.4 : 1,
                         textDecoration: interview.status === 'cancelled' ? 'line-through' : 'none',
                       }}
-                      title={`${interview.candidateName} - ${interview.startTime} [${statusLabels[interview.status]}]`}
+                      title={`${interview.candidateName} - ${interview.startTime} [${statusLabels[interview.status]}]${interview.remarks ? '\n备注：' + interview.remarks : ''}`}
                     >
                       {interview.startTime} {interview.candidateName}
+                      {interview.remarks && (
+                        <span style={{ marginLeft: 4, color: '#ff9800' }}>📝</span>
+                      )}
                       {interview.status !== 'scheduled' && (
                         <span style={{ marginLeft: 4, color: statusColors[interview.status] }}>●</span>
                       )}
@@ -337,6 +425,11 @@ export default function Schedule() {
                           ⏰ {interview.startTime} - {interview.endTime}
                         </span>
                       </div>
+                      {interview.remarks && (
+                        <div style={styles.remarksBox}>
+                          📝 {interview.remarks}
+                        </div>
+                      )}
                       <div style={styles.interviewFooter}>
                         <span style={styles.locationTag}>📍 {interview.location}</span>
                         <span style={styles.typeTag}>{interviewTypeLabels[interview.type]}</span>
@@ -406,6 +499,110 @@ export default function Schedule() {
             })}
           </div>
         </div>
+          </>
+        ) : (
+          <div style={styles.interviewerView}>
+            <div style={styles.interviewerHeader}>
+              <h3 style={styles.panelTitle}>
+                面试官负载视图 · {weekStart} ~ {weekEnd}
+              </h3>
+              <div style={styles.weekNav}>
+                <button
+                  style={styles.navBtn}
+                  onClick={() => setSelectedDate(format(addDays(new Date(selectedDate), -7), 'yyyy-MM-dd'))}
+                >
+                  ◀ 上周
+                </button>
+                <button style={styles.todayBtn} onClick={handleToday}>本周</button>
+                <button
+                  style={styles.navBtn}
+                  onClick={() => setSelectedDate(format(addDays(new Date(selectedDate), 7), 'yyyy-MM-dd'))}
+                >
+                  下周 ▶
+                </button>
+              </div>
+            </div>
+            <div style={styles.interviewerGrid}>
+              <div style={styles.interviewerGridHeader}>
+                <div style={styles.interviewerNameCell}>面试官</div>
+                {weekDaysList.map((date) => (
+                  <div key={date} style={{
+                    ...styles.interviewerDateCell,
+                    ...(date === today ? styles.todayDateCell : {}),
+                  }}>
+                    <div>{format(new Date(date), 'MM-dd')}</div>
+                    <div style={{ fontSize: 11, color: '#999' }}>
+                      {format(new Date(date), 'EEE')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {interviewerWorkloads.map((interviewer) => (
+                <div key={interviewer.id} style={styles.interviewerRow}>
+                  <div style={styles.interviewerNameCell}>
+                    <div style={{ fontWeight: 500 }}>{interviewer.name}</div>
+                    <div style={{ fontSize: 11, color: '#999' }}>
+                      {interviewer.title} · 本周 {interviewer.total} 场
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                      <span style={{ ...styles.smallBadge, background: '#e3f2fd', color: '#1976d2' }}>
+                        待面试 {interviewer.scheduled}
+                      </span>
+                      <span style={{ ...styles.smallBadge, background: '#e8f5e9', color: '#388e3c' }}>
+                        已完成 {interviewer.completed}
+                      </span>
+                    </div>
+                  </div>
+                  {weekDaysList.map((date) => {
+                    const dayInterviews = getInterviewerInterviewsForDate(interviewer.id, date);
+                    return (
+                      <div key={date} style={{
+                        ...styles.interviewerDateCell,
+                        ...(date === today ? styles.todayDateCell : {}),
+                        minHeight: 100,
+                      }}>
+                        {dayInterviews.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {dayInterviews.map((iv) => (
+                              <div
+                                key={iv.id}
+                                style={{
+                                  ...styles.smallInterviewCard,
+                                  borderLeftColor: stageColors[iv.stage],
+                                  backgroundColor: stageColors[iv.stage] + '15',
+                                  opacity: iv.status === 'cancelled' ? 0.4 : 1,
+                                }}
+                                title={`${iv.candidateName}\n${iv.startTime}-${iv.endTime}\n${statusLabels[iv.status]}${iv.remarks ? '\n备注：' + iv.remarks : ''}`}
+                                onClick={() => {
+                                  setSelectedDate(date);
+                                  setViewMode('calendar');
+                                }}
+                              >
+                                <div style={{ fontSize: 10, color: '#666' }}>
+                                  {iv.startTime} {iv.candidateName}
+                                </div>
+                                <div style={{ fontSize: 9, color: '#999' }}>
+                                  {stageLabels[iv.stage]}
+                                </div>
+                                {iv.remarks && (
+                                  <div style={{ fontSize: 9, color: '#ff9800', marginTop: 2 }}>
+                                    📝 {iv.remarks.substring(0, 15)}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 11, color: '#ccc' }}>无安排</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {upcoming.length > 0 && (
@@ -546,6 +743,50 @@ export default function Schedule() {
                   />
                 </div>
               </div>
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>备注</label>
+                  <textarea
+                    style={{ ...styles.input, minHeight: '60px', resize: 'vertical' }}
+                    value={editingInterview.remarks || ''}
+                    onChange={(e) => setEditingInterview({ ...editingInterview, remarks: e.target.value })}
+                    placeholder="如：需要准备笔试题目、注意考察项目经验..."
+                  />
+                </div>
+              </div>
+              {conflictInfo && conflictInfo.hasConflict && (
+                <div style={styles.conflictAlert}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '18px' }}>⚠️</span>
+                    <span style={{ fontWeight: 500, color: '#f44336' }}>检测到时间冲突</span>
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}>
+                    面试官在该时段已有其他安排，以下是可替代的空闲时段：
+                  </div>
+                  {conflictInfo.alternativeSlots.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {conflictInfo.alternativeSlots.map((slot, idx) => (
+                        <button
+                          key={idx}
+                          style={styles.alternativeSlotBtn}
+                          onClick={() => {
+                            setEditingInterview({
+                              ...editingInterview,
+                              startTime: slot.start,
+                              endTime: slot.end,
+                            });
+                            setConflictInfo(null);
+                          }}
+                        >
+                          改到 {slot.start} - {slot.end}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '12px', color: '#999' }}>该日暂无其他空闲时段</div>
+                  )}
+                </div>
+              )}
               {editingInterview.interviewerId && editingInterview.date && (
                 <div style={styles.availabilityCheck}>
                   <span style={{ color: '#666' }}>面试官空闲时段：</span>
@@ -1045,5 +1286,121 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '6px',
     fontSize: '14px',
     fontWeight: 500,
+  },
+  viewToggle: {
+    display: 'flex',
+    gap: '4px',
+    marginLeft: '16px',
+    backgroundColor: '#f5f5f5',
+    borderRadius: '6px',
+    padding: '4px',
+  },
+  viewToggleBtn: {
+    padding: '6px 16px',
+    fontSize: '13px',
+    color: '#666',
+    borderRadius: '4px',
+    transition: 'all 0.2s',
+  },
+  viewToggleBtnActive: {
+    backgroundColor: '#fff',
+    color: '#1976d2',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+  },
+  remarksBox: {
+    padding: '8px 10px',
+    backgroundColor: '#fff8e1',
+    borderRadius: '4px',
+    fontSize: '12px',
+    color: '#795548',
+    marginBottom: '8px',
+    lineHeight: 1.5,
+  },
+  interviewerView: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+    backgroundColor: '#fff',
+    borderRadius: '8px',
+    padding: '16px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    minHeight: 0,
+    overflow: 'hidden',
+  },
+  interviewerHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  weekNav: {
+    display: 'flex',
+    gap: '8px',
+  },
+  interviewerGrid: {
+    flex: 1,
+    overflowX: 'auto',
+    overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  interviewerGridHeader: {
+    display: 'grid',
+    gridTemplateColumns: '200px repeat(7, 1fr)',
+    position: 'sticky',
+    top: 0,
+    backgroundColor: '#f5f5f5',
+    borderRadius: '6px',
+    zIndex: 1,
+  },
+  interviewerRow: {
+    display: 'grid',
+    gridTemplateColumns: '200px repeat(7, 1fr)',
+    borderBottom: '1px solid #f0f0f0',
+  },
+  interviewerNameCell: {
+    padding: '12px',
+    borderRight: '1px solid #f0f0f0',
+    backgroundColor: '#fafafa',
+  },
+  interviewerDateCell: {
+    padding: '8px',
+    borderRight: '1px solid #f0f0f0',
+    textAlign: 'center',
+    minHeight: '100px',
+  },
+  todayDateCell: {
+    backgroundColor: '#e3f2fd20',
+  },
+  smallInterviewCard: {
+    padding: '6px',
+    borderRadius: '4px',
+    borderLeft: '3px solid',
+    textAlign: 'left',
+    cursor: 'pointer',
+    transition: 'transform 0.15s',
+  },
+  smallBadge: {
+    padding: '2px 6px',
+    borderRadius: '10px',
+    fontSize: '10px',
+    fontWeight: 500,
+  },
+  conflictAlert: {
+    padding: '12px',
+    backgroundColor: '#ffebee',
+    borderRadius: '6px',
+    marginTop: '8px',
+    border: '1px solid #ffcdd2',
+  },
+  alternativeSlotBtn: {
+    padding: '6px 12px',
+    backgroundColor: '#fff',
+    color: '#1976d2',
+    border: '1px solid #bbdefb',
+    borderRadius: '4px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
   },
 };

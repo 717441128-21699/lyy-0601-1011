@@ -49,6 +49,7 @@ export const mockCandidates: Candidate[] = [
     appliedDate: '2026-06-01', source: 'Boss直聘',
     tags: ['985', '大厂经验', '技术栈匹配'],
     currentStage: 'tech_interview',
+    talentPoolGroup: 'star',
   },
   {
     id: 'c2', name: '刘小红', phone: '13900139002', email: 'liuxh@email.com',
@@ -59,6 +60,7 @@ export const mockCandidates: Candidate[] = [
     appliedDate: '2026-06-02', source: '猎聘',
     tags: ['高学历', '潜力大'],
     currentStage: 'phone_interview',
+    talentPoolGroup: 'backup',
   },
   {
     id: 'c3', name: '张伟', phone: '13900139003', email: 'zhangwei@email.com',
@@ -69,6 +71,7 @@ export const mockCandidates: Candidate[] = [
     appliedDate: '2026-06-03', source: '内部推荐',
     tags: ['内推', '项目经验丰富'],
     currentStage: 'resume_screen',
+    talentPoolGroup: 'normal',
   },
   {
     id: 'c4', name: '李娜', phone: '13900139004', email: 'lina@email.com',
@@ -79,6 +82,7 @@ export const mockCandidates: Candidate[] = [
     appliedDate: '2026-05-20', source: 'LinkedIn',
     tags: ['经验丰富', 'B端产品', '带过团队'],
     currentStage: 'offer',
+    talentPoolGroup: 'star',
   },
   {
     id: 'c5', name: '王磊', phone: '13900139005', email: 'wanglei@email.com',
@@ -89,6 +93,7 @@ export const mockCandidates: Candidate[] = [
     appliedDate: '2026-05-15', source: '站酷',
     tags: ['作品集优秀'],
     currentStage: 'final_interview',
+    talentPoolGroup: 'suspended',
   },
   {
     id: 'c6', name: '孙涛', phone: '13900139006', email: 'suntao@email.com',
@@ -99,6 +104,7 @@ export const mockCandidates: Candidate[] = [
     appliedDate: '2026-06-05', source: '猎头推荐',
     tags: ['资深', '架构经验', '高并发经验'],
     currentStage: 'tech_interview',
+    talentPoolGroup: 'star',
   },
   {
     id: 'c7', name: '周婷', phone: '13900139007', email: 'zhouting@email.com',
@@ -109,6 +115,7 @@ export const mockCandidates: Candidate[] = [
     appliedDate: '2026-06-06', source: '校园招聘',
     tags: ['应届生', '成绩优异', '实习经验'],
     currentStage: 'resume_screen',
+    talentPoolGroup: 'backup',
   },
   {
     id: 'c8', name: '吴浩', phone: '13900139008', email: 'wuhao@email.com',
@@ -119,6 +126,7 @@ export const mockCandidates: Candidate[] = [
     appliedDate: '2026-06-04', source: 'Boss直聘',
     tags: ['增长经验', '数据驱动'],
     currentStage: 'hr_interview',
+    talentPoolGroup: 'normal',
   },
 ];
 
@@ -129,6 +137,7 @@ export const mockInterviews: Interview[] = [
     date: '2026-06-11', startTime: '14:00', endTime: '15:00',
     stage: 'tech_interview', location: '会议室A', type: 'onsite',
     status: 'scheduled',
+    remarks: '重点考察React和TypeScript项目经验，候选人有大厂背景',
   },
   {
     id: 'int2', candidateId: 'c2', candidateName: '刘小红', position: 'Java后端开发',
@@ -136,6 +145,7 @@ export const mockInterviews: Interview[] = [
     date: '2026-06-11', startTime: '15:30', endTime: '16:30',
     stage: 'phone_interview', location: '电话面试', type: 'phone',
     status: 'scheduled',
+    remarks: '初步电话筛选，了解基本技术栈和项目经历',
   },
   {
     id: 'int3', candidateId: 'c6', candidateName: '孙涛', position: 'Java后端开发',
@@ -143,6 +153,7 @@ export const mockInterviews: Interview[] = [
     date: '2026-06-12', startTime: '10:30', endTime: '12:00',
     stage: 'tech_interview', location: '会议室B', type: 'onsite',
     status: 'scheduled',
+    remarks: '资深候选人，8年经验，重点考察架构设计能力和高并发经验',
   },
   {
     id: 'int4', candidateId: 'c8', candidateName: '吴浩', position: '产品经理',
@@ -150,6 +161,7 @@ export const mockInterviews: Interview[] = [
     date: '2026-06-12', startTime: '14:30', endTime: '15:30',
     stage: 'hr_interview', location: '会议室C', type: 'online',
     status: 'scheduled',
+    remarks: 'HR面试，考察综合素质和文化匹配度，视频面试',
   },
   {
     id: 'int5', candidateId: 'c4', candidateName: '李娜', position: '产品经理',
@@ -157,6 +169,7 @@ export const mockInterviews: Interview[] = [
     date: '2026-06-08', startTime: '14:00', endTime: '15:30',
     stage: 'final_interview', location: '会议室A', type: 'onsite',
     status: 'completed',
+    remarks: '终面，候选人表现优秀，建议优先录用',
     evaluation: {
       overallScore: 9, technicalSkills: 8, communication: 10, teamwork: 9, problemSolving: 9,
       comments: '产品思维清晰，过往项目经验与岗位匹配度高，沟通能力出色，能够很好地理解用户需求并转化为产品方案。',
@@ -173,6 +186,7 @@ export const mockInterviews: Interview[] = [
     date: '2026-06-05', startTime: '10:00', endTime: '11:30',
     stage: 'final_interview', location: '会议室D', type: 'onsite',
     status: 'completed',
+    remarks: '作品集不错，但与公司业务方向匹配度不高',
     evaluation: {
       overallScore: 6, technicalSkills: 7, communication: 6, teamwork: 6, problemSolving: 5,
       comments: '设计能力尚可，但作品集与公司业务方向匹配度不高，薪资期望与岗位预算有差距。',

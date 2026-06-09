@@ -13,13 +13,19 @@ import {
 } from 'recharts';
 
 export default function Analytics() {
-  const { candidates, interviews, interviewers, positions } = useStore();
+  const {
+    candidates, interviews, interviewers, positions,
+    filterPresets, addFilterPreset, updateFilterPreset, deleteFilterPreset,
+  } = useStore();
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'comparison' | 'conversion' | 'trend' | 'export'>('overview');
   const [comparePosition, setComparePosition] = useState('');
   const [selectedCandidates, setSelectedCandidates] = useState<string[]>([]);
   const [filterPosition, setFilterPosition] = useState('');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+  const [showPresetModal, setShowPresetModal] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
 
   const positionOptions = useMemo(() => [...new Set(candidates.map((c) => c.position))], [candidates]);
 
@@ -44,6 +50,59 @@ export default function Analytics() {
     const numMatch = s.match(/\d+(\.\d+)?/);
     if (numMatch) return `${numMatch[0]}K`;
     return s;
+  };
+
+  const handleSavePreset = () => {
+    if (!presetName.trim()) {
+      alert('请输入方案名称');
+      return;
+    }
+
+    if (editingPresetId) {
+      updateFilterPreset(editingPresetId, {
+        name: presetName.trim(),
+        position: filterPosition,
+        startDate: filterStartDate,
+        endDate: filterEndDate,
+      });
+    } else {
+      addFilterPreset({
+        name: presetName.trim(),
+        position: filterPosition,
+        startDate: filterStartDate,
+        endDate: filterEndDate,
+      });
+    }
+    setShowPresetModal(false);
+    setPresetName('');
+    setEditingPresetId(null);
+  };
+
+  const handleApplyPreset = (preset: typeof filterPresets[0]) => {
+    setFilterPosition(preset.position);
+    setFilterStartDate(preset.startDate);
+    setFilterEndDate(preset.endDate);
+  };
+
+  const handleDeletePreset = (id: string) => {
+    if (confirm('确定要删除此筛选方案吗？')) {
+      deleteFilterPreset(id);
+    }
+  };
+
+  const handleEditPreset = (preset: typeof filterPresets[0]) => {
+    setPresetName(preset.name);
+    setFilterPosition(preset.position);
+    setFilterStartDate(preset.startDate);
+    setFilterEndDate(preset.endDate);
+    setEditingPresetId(preset.id);
+    setShowPresetModal(true);
+  };
+
+  const handleOpenSavePreset = () => {
+    setPresetName('');
+    setEditingPresetId(null);
+    setShowPresetModal(true);
   };
 
   const stats = useMemo(() => {
@@ -208,12 +267,12 @@ export default function Analytics() {
     );
   };
 
-  const exportToExcel = (type: 'candidates' | 'evaluations' | 'conclusions' | 'comparison' | 'trend') => {
+  const exportToExcel = (type: 'candidates' | 'evaluations' | 'conclusions' | 'comparison' | 'trend' | 'review') => {
     let data: any[] = [];
     let fileName = '';
     let sheetName = 'Sheet1';
 
-    const dataSource = (type === 'comparison' || type === 'trend') ? filteredCandidates : candidates;
+    const dataSource = (type === 'comparison' || type === 'trend' || type === 'review') ? filteredCandidates : candidates;
 
     const getFilterDesc = () => {
       const parts: string[] = [];
@@ -222,6 +281,130 @@ export default function Analytics() {
       if (filterEndDate) parts.push(`至${filterEndDate}`);
       return parts.length > 0 ? parts.join('_') : '全部';
     };
+
+    if (type === 'review') {
+      const wb = XLSX.utils.book_new();
+      const now = new Date().toISOString().replace('T', ' ').substr(0, 16);
+
+      const summaryData = [
+        { 项目: '招聘复盘报告', 数值: '', 说明: '' },
+        { 项目: '导出时间', 数值: now, 说明: '' },
+        { 项目: '筛选条件', 数值: getFilterDesc(), 说明: '' },
+        { 项目: '', 数值: '', 说明: '' },
+        { 项目: '招聘概览', 数值: '', 说明: '' },
+        { 项目: '筛选后候选人总数', 数值: filteredCandidates.length, 说明: '人' },
+        { 项目: '面试中', 数值: filteredCandidates.filter(c => c.status === 'interviewing').length, 说明: '人' },
+        { 项目: '已通过', 数值: filteredCandidates.filter(c => c.status === 'passed').length, 说明: '人' },
+        { 项目: '已淘汰', 数值: filteredCandidates.filter(c => c.status === 'rejected').length, 说明: '人' },
+        { 项目: '已入职', 数值: filteredCandidates.filter(c => c.status === 'hired').length, 说明: '人' },
+        { 项目: '', 数值: '', 说明: '' },
+        { 项目: '转化率分析', 数值: '', 说明: '' },
+        { 项目: '整体通过率', 数值: filteredCandidates.length > 0 ? Math.round((filteredCandidates.filter(c => c.status === 'passed' || c.status === 'hired').length / filteredCandidates.length) * 100) : 0, 说明: '%' },
+        { 项目: '淘汰率', 数值: filteredCandidates.length > 0 ? Math.round((filteredCandidates.filter(c => c.status === 'rejected').length / filteredCandidates.length) * 100) : 0, 说明: '%' },
+      ];
+      const ws1 = XLSX.utils.json_to_sheet(summaryData, { skipHeader: true });
+      ws1['!cols'] = [{ wch: 25 }, { wch: 20 }, { wch: 15 }];
+      XLSX.utils.book_append_sheet(wb, ws1, '1.招聘概览');
+
+      const stageData = (() => {
+        const stages = ['resume_screen', 'phone_interview', 'tech_interview', 'hr_interview', 'final_interview', 'offer'];
+        return stages.map((stage) => {
+          const count = filteredCandidates.filter((c) => {
+            const idx = stages.indexOf(c.currentStage);
+            return idx >= stages.indexOf(stage);
+          }).length;
+          const prevCount = stage === 'resume_screen' ? count :
+            filteredCandidates.filter((c) => {
+              const idx = stages.indexOf(c.currentStage);
+              const prevIdx = stages.indexOf(stage) - 1;
+              return idx >= prevIdx;
+            }).length;
+          return {
+            阶段: stageLabels[stage as keyof typeof stageLabels],
+            人数: count,
+            转化率: prevCount > 0 ? Math.round((count / prevCount) * 100) + '%' : '-',
+            留存率: filteredCandidates.length > 0 ? Math.round((count / filteredCandidates.length) * 100) + '%' : '0%',
+          };
+        });
+      })();
+      const ws2 = XLSX.utils.json_to_sheet(stageData);
+      ws2['!cols'] = [{ wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 12 }];
+      XLSX.utils.book_append_sheet(wb, ws2, '2.阶段漏斗');
+
+      const positionSummary = Object.entries(stats.byPosition).map(([name, data]) => ({
+        岗位: name,
+        总人数: data.total,
+        面试中: data.interviewing,
+        已通过: data.passed,
+        已淘汰: data.rejected,
+        通过率: data.total > 0 ? Math.round(((data.passed) / data.total) * 100) + '%' : '0%',
+      }));
+      const ws3 = XLSX.utils.json_to_sheet(positionSummary);
+      ws3['!cols'] = [{ wch: 25 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+      XLSX.utils.book_append_sheet(wb, ws3, '3.岗位分析');
+
+      const candidatesData = dataSource.map((c) => ({
+        姓名: c.name,
+        电话: c.phone,
+        邮箱: c.email,
+        岗位: c.position,
+        部门: c.department,
+        学历: c.education,
+        工作经验: c.workExperience + '年',
+        技能: c.skills.join(', '),
+        期望薪资: c.expectedSalary,
+        状态: statusLabels[c.status],
+        当前阶段: stageLabels[c.currentStage],
+        申请日期: c.appliedDate,
+        来源: c.source,
+      }));
+      const ws4 = XLSX.utils.json_to_sheet(candidatesData);
+      XLSX.utils.book_append_sheet(wb, ws4, '4.候选人明细');
+
+      const evaluationsData = interviews
+        .filter((i) => i.evaluation && filteredCandidates.some(c => c.id === i.candidateId))
+        .map((i) => ({
+          候选人: i.candidateName,
+          岗位: i.position,
+          面试官: i.interviewer,
+          面试日期: i.date,
+          面试阶段: stageLabels[i.stage],
+          综合评分: i.evaluation!.overallScore,
+          技术能力: i.evaluation!.technicalSkills,
+          沟通能力: i.evaluation!.communication,
+          团队协作: i.evaluation!.teamwork,
+          问题解决: i.evaluation!.problemSolving,
+          建议薪资: formatSalary(i.evaluation!.suggestedSalary),
+          录用建议: recommendationLabels[i.evaluation!.recommendation],
+          评价内容: i.evaluation!.comments,
+        }));
+      if (evaluationsData.length > 0) {
+        const ws5 = XLSX.utils.json_to_sheet(evaluationsData);
+        XLSX.utils.book_append_sheet(wb, ws5, '5.评价明细');
+      }
+
+      if (trendData.length > 0 && trendData[0].monthlyTrend.length > 0) {
+        const trendExportData = trendData.flatMap((pos) =>
+          pos.monthlyTrend.map((m) => ({
+            岗位: pos.position,
+            月份: m.月份,
+            简历筛选: (m as any)['简历筛选'],
+            电话面试: (m as any)['电话面试'],
+            技术面试: (m as any)['技术面试'],
+            HR面试: (m as any)['HR面试'],
+            终面: (m as any)['终面'],
+            发Offer: (m as any)['发Offer'],
+          }))
+        );
+        const ws6 = XLSX.utils.json_to_sheet(trendExportData);
+        XLSX.utils.book_append_sheet(wb, ws6, '6.月度趋势');
+      }
+
+      fileName = `招聘复盘报告_${getFilterDesc()}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      alert(`已导出招聘复盘报告：${fileName}\n\n包含6个工作表：\n1. 招聘概览\n2. 阶段漏斗\n3. 岗位分析\n4. 候选人明细\n5. 评价明细\n6. 月度趋势`);
+      return;
+    }
 
     if (type === 'candidates') {
       data = dataSource.map((c) => ({
@@ -427,30 +610,188 @@ export default function Analytics() {
         筛选结果：{filteredCandidates.length} 位候选人
       </div>
       {(filterPosition || filterStartDate || filterEndDate) && (
-        <button
-          onClick={() => {
-            setFilterPosition('');
-            setFilterStartDate('');
-            setFilterEndDate('');
-          }}
-          style={{
-            padding: '6px 16px',
-            background: 'transparent',
-            border: '1px solid #d9d9d9',
-            borderRadius: 4,
-            fontSize: 13,
-            cursor: 'pointer',
-            color: '#666',
-          }}
-        >
-          清除筛选
-        </button>
+        <>
+          <button
+            onClick={handleOpenSavePreset}
+            style={{
+              padding: '6px 16px',
+              background: '#1890ff',
+              border: '1px solid #1890ff',
+              borderRadius: 4,
+              fontSize: 13,
+              cursor: 'pointer',
+              color: '#fff',
+            }}
+          >
+            💾 保存方案
+          </button>
+          <button
+            onClick={() => {
+              setFilterPosition('');
+              setFilterStartDate('');
+              setFilterEndDate('');
+            }}
+            style={{
+              padding: '6px 16px',
+              background: 'transparent',
+              border: '1px solid #d9d9d9',
+              borderRadius: 4,
+              fontSize: 13,
+              cursor: 'pointer',
+              color: '#666',
+            }}
+          >
+            清除筛选
+          </button>
+        </>
       )}
     </div>
   );
 
+  const PresetBar = () => {
+    if (filterPresets.length === 0) return null;
+    return (
+      <div style={{
+        display: 'flex',
+        gap: 8,
+        alignItems: 'center',
+        padding: '12px 16px',
+        background: '#f5f5f5',
+        borderRadius: 8,
+        marginBottom: 16,
+        flexWrap: 'wrap',
+      }}>
+        <span style={{ fontSize: 13, color: '#666', marginRight: 8 }}>常用方案：</span>
+        {filterPresets.map((preset) => (
+          <div
+            key={preset.id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '6px 12px',
+              background: '#fff',
+              border: '1px solid #d9d9d9',
+              borderRadius: 16,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            <span
+              onClick={() => handleApplyPreset(preset)}
+              style={{ fontSize: 12, color: '#333' }}
+            >
+              {preset.name}
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleEditPreset(preset); }}
+              style={{ fontSize: 11, color: '#999', cursor: 'pointer', padding: 0, background: 'none', border: 'none' }}
+            >
+              ✎
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDeletePreset(preset.id); }}
+              style={{ fontSize: 11, color: '#999', cursor: 'pointer', padding: 0, background: 'none', border: 'none' }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const PresetModal = () => {
+    if (!showPresetModal) return null;
+    return (
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}>
+        <div style={{
+          background: 'white',
+          padding: 24,
+          borderRadius: 8,
+          minWidth: 400,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        }}>
+          <h3 style={{ margin: '0 0 20px 0', fontSize: 16 }}>
+            {editingPresetId ? '编辑筛选方案' : '保存筛选方案'}
+          </h3>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 8 }}>方案名称</label>
+            <input
+              type="text"
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              placeholder="请输入方案名称，如：前端岗位2025年Q1"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #d9d9d9',
+                borderRadius: 4,
+                fontSize: 14,
+                boxSizing: 'border-box',
+              }}
+              autoFocus
+            />
+          </div>
+          <div style={{ marginBottom: 20, padding: 12, background: '#f5f5f5', borderRadius: 4, fontSize: 13 }}>
+            <div style={{ color: '#666', marginBottom: 8 }}>筛选条件：</div>
+            <div>岗位：{filterPosition || '全部'}</div>
+            <div>开始日期：{filterStartDate || '不限'}</div>
+            <div>结束日期：{filterEndDate || '不限'}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => {
+                setShowPresetModal(false);
+                setPresetName('');
+                setEditingPresetId(null);
+              }}
+              style={{
+                padding: '8px 20px',
+                background: 'transparent',
+                border: '1px solid #d9d9d9',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: 14,
+              }}
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSavePreset}
+              style={{
+                padding: '8px 20px',
+                background: '#1890ff',
+                color: 'white',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: 14,
+              }}
+            >
+              {editingPresetId ? '保存修改' : '保存'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <PresetModal />
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid #e0e0e0' }}>
         {subTabs.map((tab) => (
           <button
@@ -562,6 +903,7 @@ export default function Analytics() {
 
       {activeSubTab === 'comparison' && (
         <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
+          <PresetBar />
           <FilterBar />
           <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
             <label style={{ fontSize: 14, fontWeight: 500 }}>选择对比岗位：</label>
@@ -812,6 +1154,7 @@ export default function Analytics() {
 
       {activeSubTab === 'trend' && (
         <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
+          <PresetBar />
           <FilterBar />
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
@@ -967,6 +1310,7 @@ export default function Analytics() {
 
       {activeSubTab === 'export' && (
         <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
+          <PresetBar />
           <FilterBar />
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, maxWidth: 1200 }}>
@@ -1013,6 +1357,13 @@ export default function Analytics() {
               <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>创建候选人对比</h3>
               <p style={{ margin: 0, fontSize: 13, color: '#666' }}>选择候选人进行多维度横向对比分析</p>
               <button style={{ ...exportBtnStyle, background: '#faad14' }}>去对比</button>
+            </div>
+
+            <div style={{ ...cardStyle, padding: 24, textAlign: 'center', cursor: 'pointer', background: '#f9f0ff' }} onClick={() => exportToExcel('review')}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>📚</div>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>导出招聘复盘</h3>
+              <p style={{ margin: 0, fontSize: 13, color: '#666' }}>完整招聘复盘报告，包含图表数据和明细</p>
+              <button style={{ ...exportBtnStyle, background: '#722ed1' }}>导出 Excel</button>
             </div>
           </div>
 
